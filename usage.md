@@ -39,6 +39,8 @@ module.exports = {
 
     （可选）如果需要，可以修改使用的模型。但是仍然建议使用opus，因为其他未经测试。
 
+    （可选）如果需要，可以启用自定义会话模式（`USE_CUSTOM_MODE`设置为`true`）。可以缩短原系统消息长度、禁用联网、减缓等待时间，可能有助于破限。但有可能导致更容易出现 unusual query volume。
+
 8. 启动 start.bat
 
 9. 酒馆中选择 Claude，反向代理地址填 http://127.0.0.1:8080/v1 **反代密码必须填, 同时打开流式传输**，随便什么都可以（除非你在第7步设置了PASSWORD）。
@@ -119,6 +121,8 @@ module.exports = {
    (Optional) You can set the proxy in start.bat. See below.
 
    (Optional) You may change the model to use, but only claude_3_opus is tested.
+
+   (Optional) You may turn on the custom chat mode by setting `USE_CUSTOM_MODE` env to `true`
 
 8. Start start.bat
 
