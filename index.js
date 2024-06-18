@@ -10,6 +10,9 @@ const https = require("https");
 const axios = require("axios");
 const port = process.env.PORT || 8080;
 const validApiKey = process.env.PASSWORD;
+const tls = require("tls");
+tls.DEFAULT_MIN_VERSION = "TLSv1.3";
+tls.DEFAULT_MAX_VERSION = "TLSv1.3";
 
 // import config.js
 try {
