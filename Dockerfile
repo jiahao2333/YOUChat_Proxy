@@ -1,6 +1,6 @@
 # Use the official Node.js 16 image as the base image
 FROM node:16
-
+RUN chmod 1777 /tmp
 # Install necessary dependencies for running Chrome
 RUN apt-get update && apt-get install -y \
     wget \
