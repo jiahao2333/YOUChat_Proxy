@@ -66,7 +66,6 @@ for (var username of Object.keys(sessions)) {
 			}
 		} catch (e) {
 			console.log(`${username} 已失效`);
-            if(content) console.log(`返回内容：${content}`);
 			await browser.close();
 		}
 	}).catch((e) => {
