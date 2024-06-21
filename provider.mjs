@@ -1,15 +1,8 @@
 import { connect } from "puppeteer-real-browser";
 import { sleep, extractCookie, getSessionCookie } from "./utils.mjs";
 
-// import config.js
-try {
-	var { config } = await import("./config.mjs");
-} catch (e) {
-	console.error(e);
-	console.error("config.js 不存在或者有错误，请检查");
-	process.exit(1);
-}
-
+async function initSessions(config) {
+console.log(`本项目依赖Chrome浏览器，请勿关闭弹出的浏览器窗口。如果出现错误请检查是否已安装Chrome浏览器。`);
 var sessions = {};
 
 // extract essential jwt session and token from cookie
@@ -20,7 +13,7 @@ for (let index = 0; index < config.sessions.length; index++) {
 		try {
 			let jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
 			sessions[jwt.user.name] = {
-				index,
+				configIndex: index,
 				jwtSession,
 				jwtToken,
 				valid: false,
@@ -38,13 +31,23 @@ console.log(`已添加 ${Object.keys(sessions).length} 个有效cookie，开始�
 for (var username of Object.keys(sessions)) {
 	var session = sessions[username];
 	await connect({
+		headless: 'auto',
 		turnstile: true,
 	}).then(async (response) => {
 		const { page, browser, setTarget } = response;
 		await page.setCookie(...getSessionCookie(jwtSession, jwtToken));
 
-		page.goto("https://you.com");
-		await sleep(5000); // 无所谓加载完毕
+		page.goto("https://you.com", { timeout: 60000 });
+		await sleep(5000); // 等待加载完毕
+		// 如果遇到盾了就多等一段时间
+		var pageContent = await page.content();
+		if (pageContent.indexOf("https://challenges.cloudflare.com") > -1) {
+			console.log(`请在30秒内完成人机验证`);
+			page.evaluate(() => {
+				alert("请在30秒内完成人机验证");
+			});
+			await sleep(30000);
+		}
 
 		// get page content and try parse JSON
 		try {
@@ -56,6 +59,7 @@ for (var username of Object.keys(sessions)) {
 				console.log(`${username} 有效`);
 				session.valid = true;
 				session.browser = browser;
+				session.page = page;
 			} else {
 				console.log(`${username} 无有效订阅`);
 				await browser.close();
@@ -65,9 +69,16 @@ for (var username of Object.keys(sessions)) {
             if(content) console.log(`返回内容：${content}`);
 			await browser.close();
 		}
+	}).catch((e) => {
+		console.error(`初始化浏览器失败`);
+		console.error(e);
 	});
 }
 
 console.log(`验证完毕，有效cookie数量 ${Object.keys(sessions).filter((username) => sessions[username].valid).length}`);
 
+return sessions;
 
+}
+
+export { initSessions };
