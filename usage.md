@@ -15,7 +15,7 @@
 6. 编辑 `config.example.js` 文件，把上面的 Cookie 和 User Agent 粘贴进去，如果有多个则按如下格式填入。然后另存为把文件名改为 `config.js`
 
 ```
-module.exports = {
+export const config = {
     "sessions": [
         {
             "user_agent": "...",
