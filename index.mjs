@@ -8,6 +8,15 @@ const app = express();
 const port = process.env.PORT || 8080;
 const validApiKey = process.env.PASSWORD;
 
+const modelMappping = {
+	"claude-3-5-sonnet-20240620": "claude_3_5_sonnet",
+	"claude-3-20240229": "claude_3_opus",
+	"claude-3-sonnet-20240229": "claude_3_sonnet",
+	"claude-3-haiku-20240307": "claude_3_haiku",
+	"claude-2.1": "claude_2",
+	"claude-2.0": "claude_2",
+};
+
 // import config.js
 try {
 	var { config } = await import("./config.mjs");
@@ -54,7 +63,14 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 			var session = sessions[randomSession];
 			console.log("Using session " + randomSession);
 
-			var proxyModel = process.env.AI_MODEL || "claude_3_opus";
+			// decide which model to use
+			if (jsonBody.model && modelMappping[jsonBody.model]) {
+				var proxyModel = modelMappping[jsonBody.model];
+			}else{
+				var proxyModel = process.env.AI_MODEL || "claude_3_opus";
+			}
+			console.log("Using model " + proxyModel);
+			
 			// 检查该session是否已经创建对应模型的对应user chat mode
 			if (process.env.USE_CUSTOM_MODE == "true") {
 				if (config.sessions[session.configIndex].user_chat_mode_id && config.sessions[session.configIndex].user_chat_mode_id[proxyModel]) {
