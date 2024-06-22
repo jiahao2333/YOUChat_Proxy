@@ -228,7 +228,7 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 			req_param.append("page", "1");
 			req_param.append("count", "10");
 			req_param.append("safeSearch", "Off");
-			req_param.append("q", "Please follow the instruction.");
+			req_param.append("q", " ");
 			req_param.append("chatId", traceId);
 			req_param.append("traceId", `${traceId}|${msgid}|${new Date().toISOString()}`);
 			req_param.append("conversationTurnId", msgid);
