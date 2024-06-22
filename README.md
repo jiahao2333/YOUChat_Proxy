@@ -10,14 +10,9 @@ A proxy for YOU Chat.
 
 **仅供个人部署用于访问自己合法取得的订阅，严禁用于转售或其他商业用途。不提供任何技术支持、不为任何违规使用导致的封号负责。**
 
+您的电脑上必须安装有 Google Chrome 浏览器才能够使用当前分支。旧版已不再维护。
 
-## 常见错误及解决办法
-
-ETIMEOUT (443) - 网络不好，换个代理
-
-403 / Just a moment... - 重新抓 Cookie
-
-config.js corrupted or missing - 填写Cookie格式不对，建议用vscode编辑（会提示问题在哪），cookie和ua都必须各自一行写完，以 `",` 结束。
+Google Chrome must be installed on your system in order to use this proxy. Previous versions are no longer maintained.
 
 ## Limitations 限制
 
