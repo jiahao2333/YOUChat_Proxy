@@ -8,25 +8,20 @@
 
 3. 点进去，往下滑找到 "Cookie"，完整的复制后面的内容。
 
-4. 用同样的方法找到 "User-Agent"，完整的复制后面的内容。
+4. 下载或Clone本项目代码，解压
 
-5. 下载或Clone本项目代码，解压
-
-6. 编辑 `config.example.js` 文件，把上面的 Cookie 和 User Agent 粘贴进去，如果有多个则按如下格式填入。然后另存为把文件名改为 `config.js`
+5. 编辑 `config.example.mjs` 文件，把上面的 Cookie 粘贴进去，如果有多个则按如下格式填入。然后另存为把文件名改为 `config.mjs`
 
 ```
 export const config = {
     "sessions": [
         {
-            "user_agent": "...",
             "cookie": "cookie1"
         },
         {
-            "user_agent": "...",
             "cookie": "cookie2"
         },
         {
-            "user_agent": "...",
             "cookie": "cookie3"
         }
     ]
@@ -55,6 +50,10 @@ export const config = {
 
 欲知详细代理格式，请查阅 https://www.npmjs.com/package/proxy-from-env
 
+# VPS 部署
+
+请使用项目中的 Dockerfile，不建议使用其他方式部署。
+
 # 修改模型
 
 修改`AI_MODEL`环境变量可以切换模型，支持的模型名字如下 (请参考官网获取最新模型):
@@ -63,6 +62,7 @@ export const config = {
 gpt_4o
 gpt_4_turbo
 gpt_4
+claude_3_5_sonnet
 claude_3_opus
 claude_3_sonnet
 claude_3_haiku
@@ -78,7 +78,7 @@ zephyr
 
 ## 注意事项
 
-出现 403 错误请重新抓 COOKIE 或者更换代理出口 IP。
+如果浏览器弹出人机验证窗口，请在30秒内完成。
 
 
 # Usage
@@ -91,25 +91,20 @@ zephyr
 
 3. Click on it, scroll down and find “Cookie:”, and copy the entire contents.
 
-4. Find the "user-agnet" in the same way.
+4. Download or Clone the code of this project and unzip it.
 
-5. Download or Clone the code of this project and unzip it.
-
-6. Edit `config.example.js` as follow。And save the file as `config.js`
+5. Edit `config.example.mjs` as follow。And save the file as `config.mjs`
 
 ```
-module.exports = {
+export const config = {
     "sessions": [
         {
-            "user_agent": "...",
             "cookie": "cookie1"
         },
         {
-            "user_agent": "...",
             "cookie": "cookie2"
         },
         {
-            "user_agent": "...",
             "cookie": "cookie3"
         }
     ]
@@ -134,6 +129,10 @@ module.exports = {
 
 Use the `https_proxy` env to set custom proxy. Refer to https://www.npmjs.com/package/proxy-from-env for detail.
 
+# Deploy on Linux
+
+Docker is highly recommended, please use the Dockerfile.
+
 # Change model
 
 Change `AI_MODEL` env to switch between models.
@@ -144,6 +143,7 @@ Supported model names (refer to you.com website for latest models):
 gpt_4o
 gpt_4_turbo
 gpt_4
+claude_3_5_sonnet
 claude_3_opus
 claude_3_sonnet
 claude_3_haiku
@@ -159,4 +159,4 @@ zephyr
 
 ## Caution
 
-If you get 403 errors, consider getting the cookie again or changing your IP.
+If you get a CloudFlare Challenge, solve it in 30 seconds.
