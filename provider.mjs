@@ -40,7 +40,7 @@ for (var username of Object.keys(sessions)) {
 		headless: 'auto',
 		turnstile: true,
 		customConfig: {
-            //userDataDir: path.join(__dirname, "browser_profiles", username),
+            userDataDir: path.join(__dirname, "browser_profiles", username),
         },
 	}).then(async (response) => {
 		const { page, browser, setTarget } = response;
