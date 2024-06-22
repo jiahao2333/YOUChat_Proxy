@@ -1,5 +1,10 @@
 import { connect } from "puppeteer-real-browser";
-import { sleep, extractCookie, getSessionCookie } from "./utils.mjs";
+import path from "path";
+import { fileURLToPath } from 'url';
+import { createDirectoryIfNotExists, sleep, extractCookie, getSessionCookie } from "./utils.mjs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function initSessions(config) {
 console.log(`本项目依赖Chrome浏览器，请勿关闭弹出的浏览器窗口。如果出现错误请检查是否已安装Chrome浏览器。`);
@@ -30,12 +35,16 @@ console.log(`已添加 ${Object.keys(sessions).length} 个有效cookie，开始�
 
 for (var username of Object.keys(sessions)) {
 	var session = sessions[username];
+	createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", username));
 	await connect({
 		headless: 'auto',
 		turnstile: true,
+		customConfig: {
+            //userDataDir: path.join(__dirname, "browser_profiles", username),
+        },
 	}).then(async (response) => {
 		const { page, browser, setTarget } = response;
-		await page.setCookie(...getSessionCookie(jwtSession, jwtToken));
+		await page.setCookie(...getSessionCookie(session.jwtSession, session.jwtToken));
 
 		page.goto("https://you.com", { timeout: 60000 });
 		await sleep(5000); // 等待加载完毕

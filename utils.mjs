@@ -1,4 +1,12 @@
 import cookie from "cookie";
+import fs from "fs";
+
+
+function createDirectoryIfNotExists(dirPath) {
+    if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+    }
+}
 
 function extractCookie(cookies) {
 	var jwtSession = null;
@@ -62,4 +70,4 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export { sleep, extractCookie, getSessionCookie };
+export { createDirectoryIfNotExists, sleep, extractCookie, getSessionCookie };
