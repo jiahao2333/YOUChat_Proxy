@@ -64,10 +64,12 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 			console.log("Using session " + randomSession);
 
 			// decide which model to use
-			if (jsonBody.model && modelMappping[jsonBody.model]) {
+			if(process.env.AI_MODEL){
+				var proxyModel = process.env.AI_MODEL;
+			}else if (jsonBody.model && modelMappping[jsonBody.model]) {
 				var proxyModel = modelMappping[jsonBody.model];
 			}else{
-				var proxyModel = process.env.AI_MODEL || "claude_3_opus";
+				var proxyModel = "claude_3_opus";
 			}
 			console.log("Using model " + proxyModel);
 			
