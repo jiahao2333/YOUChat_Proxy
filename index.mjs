@@ -263,8 +263,9 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 			var url = "https://you.com/api/streamingSearch?" + req_param.toString();
 			console.log("正在发送请求");
 			session.page.evaluate(
-				async (url, callbackName) => {
+				async (url, traceId) => {
 					var evtSource = new EventSource(url);
+					var callbackName = "callback" + traceId.substring(0, 8);
 					evtSource.onerror = (error) => {
 						window[callbackName]("error", error);
 						evtSource.close();
@@ -292,13 +293,23 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 							window[callbackName](youChatToken);
 						}
 					};
+					// 注册退出函数
+					window["exit" + traceId.substring(0, 8)] = () => {
+						evtSource.close();
+					};
 				},
 				url,
-				"callback" + traceId.substring(0, 8)
+				traceId.substring(0, 8)
 			);
 
 			res.on("close", function () {
 				console.log(" > [Client closed]");
+				session.page.evaluate(
+					(traceId) => {
+						window["exit" + traceId.substring(0, 8)]();
+					},
+					traceId.substring(0, 8)
+				);
 			});
 		} catch (e) {
 			console.log(e);
