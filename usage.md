@@ -49,11 +49,7 @@ export const config = {
 
 如果用户在中国大陆，可能会遇到访问不稳定的情况。从npm安装依赖和从 git 拉取代码也需要稳定的网络连接。这些操作遇到问题的时候应该首先考虑挂全局代理。
 
-对于项目本身，可以使用本地的socks5或http(s)代理。只需在 start.bat 中设置 `https_proxy` 环境变量。
-
-比如，如要使用 Clash 的默认本地代理，则应设置为 `set https_proxy=http://127.0.0.1:7890`
-
-欲知详细代理格式，请查阅 https://www.npmjs.com/package/proxy-from-env
+对于项目本身，由于调用的是本机的 Chrome 浏览器，会自动读取并使用系统代理。
 
 # 操作系统部署
 
