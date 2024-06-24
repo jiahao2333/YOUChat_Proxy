@@ -21,13 +21,13 @@ prompt("请Ctrl+C复制以下所有内容（Cookie）",document.cookie)
 export const config = {
     "sessions": [
         {
-            "cookie": "cookie1"
+            "cookie": `cookie1`
         },
         {
-            "cookie": "cookie2"
+            "cookie": `cookie2`
         },
         {
-            "cookie": "cookie3"
+            "cookie": `cookie3`
         }
     ]
 }
