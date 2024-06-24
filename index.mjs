@@ -30,12 +30,12 @@ const modelMappping = {
 	"claude-2.0": "claude_2",
 };
 
-// import config.js
+// import config.mjs
 try {
 	var { config } = await import("./config.mjs");
 } catch (e) {
 	console.error(e);
-	console.error("config.js 不存在或者有错误，请检查");
+	console.error("config.mjs 不存在或者有错误，请检查");
 	process.exit(1);
 }
 var provider = new YouProvider(config);
@@ -122,7 +122,7 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 						res.write(createEvent("ping", { type: "ping" }));
 					}
 				});
-		
+
 				completion.on("completion", (id, text) => {
 					if (jsonBody.stream) {
 						// send message delta
@@ -162,7 +162,7 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 						res.end();
 					}
 				});
-		
+
 				completion.on("end", () => {
 					if (jsonBody.stream) {
 						res.write(createEvent("content_block_stop", { type: "content_block_stop", index: 0 }));
@@ -177,7 +177,7 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 						res.end();
 					}
 				});
-		
+
 				res.on("close", () => {
 					console.log(" > [Client closed]");
 					completion.removeAllListeners();
