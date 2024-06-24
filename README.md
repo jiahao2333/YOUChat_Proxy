@@ -17,9 +17,3 @@ If you find this project useful, please consider [buying me a cup of coffee](htt
 您的电脑上必须安装有 Google Chrome 浏览器才能够使用当前分支。旧版已不再维护。
 
 Google Chrome must be installed on your system in order to use this proxy. Previous versions are no longer maintained.
-
-## Limitations 限制
-
-Only Anthropic API format is supported. Change the model name to use different models (default claude_3_opus)
-
-只支持A社的API格式，默认模型为 claude_3_opus。

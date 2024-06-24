@@ -28,6 +28,9 @@ const modelMappping = {
 	"claude-3-haiku-20240307": "claude_3_haiku",
 	"claude-2.1": "claude_2",
 	"claude-2.0": "claude_2",
+	"gpt-4": "gpt_4",
+	"gpt-4o": "gpt_4o",
+	"gpt-4-turbo": "gpt_4_turbo",
 };
 
 // import config.mjs
@@ -50,7 +53,7 @@ app.options("/v1/messages", (req, res) => {
 	res.status(200).end();
 });
 // openai format model request
-app.get("/v1/models", apiKeyAuth, (req, res) => {
+app.get("/v1/models", OpenAIApiKeyAuth, (req, res) => {
 	res.setHeader("Content-Type", "application/json");
 	res.setHeader("Access-Control-Allow-Origin", "*");
 	let models = availableModels.map((model, index) => {
@@ -64,7 +67,8 @@ app.get("/v1/models", apiKeyAuth, (req, res) => {
 	});
 	res.json({ object: "list", data: models });
 });
-app.post("/v1/messages", apiKeyAuth, (req, res) => {
+// handle openai format model request
+app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
 	req.rawBody = "";
 	req.setEncoding("utf8");
 
@@ -73,6 +77,188 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 	});
 
 	req.on("end", async () => {
+		console.log("Handling request of OpenAI format");
+		res.setHeader("Content-Type", "text/event-stream;charset=utf-8");
+		res.setHeader("Access-Control-Allow-Origin", "*");
+		let jsonBody = JSON.parse(req.rawBody);
+
+		console.log("message length:" + jsonBody.messages.length);
+		// decide which session to use randomly
+		var randomSession = Object.keys(provider.sessions)[Math.floor(Math.random() * Object.keys(provider.sessions).length)];
+		console.log("Using session " + randomSession);
+		// call provider to get completion
+
+		// try to map model
+		if (jsonBody.model && modelMappping[jsonBody.model]) {
+			jsonBody.model = modelMappping[jsonBody.model];
+		}
+		if (jsonBody.model && !availableModels.includes(jsonBody.model)) {
+			res.json({ error: { code: 404, message: "Invalid Model" } });
+			return;
+		}
+		console.log("Using model " + jsonBody.model);
+
+		// call provider to get completion
+		await provider
+			.getCompletion(randomSession, jsonBody.messages, jsonBody.stream ? true : false, jsonBody.model, process.env.USE_CUSTOM_MODE == "true" ? true : false)
+			.then(({ completion, cancel }) => {
+				completion.on("start", (id) => {
+					if (jsonBody.stream) {
+						// send message start
+						res.write(createEvent(":", "queue heartbeat 114514"));
+						res.write(
+							createEvent("data", {
+								id: msgid,
+								object: "chat.completion.chunk",
+								created: Math.floor(new Date().getTime() / 1000),
+								model: jsonBody.model,
+								system_fingerprint: "114514",
+								choices: [{ index: 0, delta: { role: "assistant", content: "" }, logprobs: null, finish_reason: null }],
+							})
+						);
+					}
+				});
+
+				completion.on("completion", (id, text) => {
+					if (jsonBody.stream) {
+						// send message delta
+						if (jsonBody.stream) {
+							res.write(
+								createEvent("data", {
+									choices: [
+										{
+											content_filter_results: {
+												hate: { filtered: false, severity: "safe" },
+												self_harm: { filtered: false, severity: "safe" },
+												sexual: { filtered: false, severity: "safe" },
+												violence: { filtered: false, severity: "safe" },
+											},
+											delta: { content: text },
+											finish_reason: null,
+											index: 0,
+										},
+									],
+									created: Math.floor(new Date().getTime() / 1000),
+									id: id,
+									model: jsonBody.model,
+									object: "chat.completion.chunk",
+									system_fingerprint: "114514",
+								})
+							);
+						}
+					} else {
+						// 只会发一次，发送final response
+						res.write(
+							JSON.stringify({
+								id: id,
+								object: "chat.completion",
+								created: Math.floor(new Date().getTime() / 1000),
+								model: jsonBody.model,
+								system_fingerprint: "114514",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: text,
+										},
+										logprobs: null,
+										finish_reason: "stop",
+									},
+								],
+								usage: {
+									prompt_tokens: 1,
+									completion_tokens: 1,
+									total_tokens: 1,
+								},
+							})
+						);
+						res.end();
+					}
+				});
+
+				completion.on("end", () => {
+					if (jsonBody.stream) {
+						res.write(createEvent("data", "[DONE]"));
+						res.end();
+					}
+				});
+
+				res.on("close", () => {
+					console.log(" > [Client closed]");
+					completion.removeAllListeners();
+					cancel();
+				});
+			})
+			.catch((error) => {
+				console.error(error);
+				if (jsonBody.stream) {
+					res.write(
+						createEvent("data", {
+							choices: [
+								{
+									content_filter_results: {
+										hate: { filtered: false, severity: "safe" },
+										self_harm: { filtered: false, severity: "safe" },
+										sexual: { filtered: false, severity: "safe" },
+										violence: { filtered: false, severity: "safe" },
+									},
+									delta: { content: "Error occurred, please check the log.\n\n出现错误，请检查日志：<pre>" + error.stack || error + "</pre>" },
+									finish_reason: null,
+									index: 0,
+								},
+							],
+							created: Math.floor(new Date().getTime() / 1000),
+							id: uuidv4(),
+							model: jsonBody.model,
+							object: "chat.completion.chunk",
+							system_fingerprint: "114514",
+						})
+					);
+					res.end();
+				} else {
+					res.write(
+						JSON.stringify({
+							id: uuidv4(),
+							object: "chat.completion",
+							created: Math.floor(new Date().getTime() / 1000),
+							model: jsonBody.model,
+							system_fingerprint: "114514",
+							choices: [
+								{
+									index: 0,
+									message: {
+										role: "assistant",
+										content: "Error occurred, please check the log.\n\n出现错误，请检查日志：<pre>" + error.stack || error + "</pre>",
+									},
+									logprobs: null,
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 1,
+								completion_tokens: 1,
+								total_tokens: 1,
+							},
+						})
+					);
+					res.end();
+				}
+				return;
+			});
+	});
+});
+// handle anthropic format model request
+app.post("/v1/messages", AnthropicApiKeyAuth, (req, res) => {
+	req.rawBody = "";
+	req.setEncoding("utf8");
+
+	req.on("data", function (chunk) {
+		req.rawBody += chunk;
+	});
+
+	req.on("end", async () => {
+		console.log("Handling request of Anthropic format");
 		res.setHeader("Content-Type", "text/event-stream;charset=utf-8");
 		res.setHeader("Access-Control-Allow-Origin", "*");
 		let jsonBody = JSON.parse(req.rawBody);
@@ -99,7 +285,7 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 		// call provider to get completion
 		await provider
 			.getCompletion(randomSession, jsonBody.messages, jsonBody.stream ? true : false, proxyModel, process.env.USE_CUSTOM_MODE == "true" ? true : false)
-			.then(({completion, cancel}) => {
+			.then(({ completion, cancel }) => {
 				completion.on("start", (id) => {
 					if (jsonBody.stream) {
 						// send message start
@@ -191,17 +377,20 @@ app.post("/v1/messages", apiKeyAuth, (req, res) => {
 						createEvent("content_block_delta", {
 							type: "content_block_delta",
 							index: 0,
-							delta: { type: "text_delta", text: "出现错误，请检查日志：<pre>" + error + "</pre>"},
+							delta: {
+								type: "text_delta",
+								text: "Error occurred, please check the log.\n\n出现错误，请检查日志：<pre>" + error.stack || error + "</pre>",
+							},
 						})
 					);
 					res.end();
 				} else {
 					res.write(
 						JSON.stringify({
-							id: id,
+							id: uuidv4(),
 							content: [
 								{
-									text: "出现错误，请检查日志：<pre>" + error + "</pre>"
+									text: "Error occurred, please check the log.\n\n出现错误，请检查日志：<pre>" + error.stack || error + "</pre>",
 								},
 								{
 									id: "string",
@@ -235,10 +424,10 @@ app.listen(port, () => {
 	if (!validApiKey) {
 		console.log(`Proxy is currently running with no authentication`);
 	}
-	console.log(`API Format: Anthropic; Custom mode: ${process.env.USE_CUSTOM_MODE == "true" ? "enabled" : "disabled"}`);
+	console.log(`Custom mode: ${process.env.USE_CUSTOM_MODE == "true" ? "enabled" : "disabled"}`);
 });
 
-function apiKeyAuth(req, res, next) {
+function AnthropicApiKeyAuth(req, res, next) {
 	const reqApiKey = req.header("x-api-key");
 
 	if (validApiKey && reqApiKey !== validApiKey) {
@@ -246,6 +435,19 @@ function apiKeyAuth(req, res, next) {
 		const clientIpAddress = req.headers["x-forwarded-for"] || req.ip;
 		console.log(`Receviced Request from IP ${clientIpAddress} but got invalid password.`);
 		return res.status(401).json({ error: "Invalid Password" });
+	}
+
+	next();
+}
+
+function OpenAIApiKeyAuth(req, res, next) {
+	const reqApiKey = req.header("Authorization");
+
+	if (validApiKey && reqApiKey !== "Bearer " + validApiKey) {
+		// If Environment variable PASSWORD is set AND Authorization header is not equal to it, return 401
+		const clientIpAddress = req.headers["x-forwarded-for"] || req.ip;
+		console.log(`Receviced Request from IP ${clientIpAddress} but got invalid password.`);
+		return res.status(401).json({ error: { code: 403, message: "Invalid Password" } });
 	}
 
 	next();
