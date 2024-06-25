@@ -162,7 +162,7 @@ class YouProvider {
 				if (!userChatMode) console.log("Failed to create user chat mode, will use default mode instead.");
 				this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel] = userChatMode.chat_mode_id;
 				// 写回config
-				await fs.writeFile("./config.mjs", "export const config = " + JSON.stringify(this.config, null, 4));
+				fs.writeFileSync("./config.mjs", "export const config = " + JSON.stringify(this.config, null, 4));
 			}
 			userChatModeId = this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel];
 		} else {
