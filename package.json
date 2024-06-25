@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "cookie": "^0.6.0",
     "docx": "^8.5.0",
     "express": "^4.19.2",
     "form-data": "^4.0.0",
