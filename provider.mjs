@@ -183,7 +183,7 @@ class YouProvider {
 
 		// expose function to receive youChatToken
 		var finalResponse = "";
-		page.exposeFunction("callback" + traceId.substring(0, 8), async (event, data) => {
+		page.exposeFunction("callback" + traceId, async (event, data) => {
 			switch (event) {
 				case "youChatToken":
 					data = JSON.parse(data);
@@ -232,7 +232,7 @@ class YouProvider {
 		page.evaluate(
 			async (url, traceId) => {
 				var evtSource = new EventSource(url);
-				var callbackName = "callback" + traceId.substring(0, 8);
+				var callbackName = "callback" + traceId;
 				evtSource.onerror = (error) => {
 					window[callbackName]("error", error);
 					evtSource.close();
@@ -250,6 +250,13 @@ class YouProvider {
 					(event) => {
 						window[callbackName]("done", "");
 						evtSource.close();
+						fetch("https://you.com/api/chat/deleteChat", {
+							headers: {
+								"content-type": "application/json",
+							},
+							body: JSON.stringify({ chatId: traceId }),
+							method: "DELETE",
+						});
 					},
 					false
 				);
@@ -261,17 +268,17 @@ class YouProvider {
 					}
 				};
 				// 注册退出函数
-				window["exit" + traceId.substring(0, 8)] = () => {
+				window["exit" + traceId] = () => {
 					evtSource.close();
 				};
 			},
 			url,
-			traceId.substring(0, 8)
+			traceId
 		);
 		const cancel = () => {
 			page?.evaluate((traceId) => {
-				window["exit" + traceId.substring(0, 8)]();
-			}, traceId.substring(0, 8));
+				window["exit" + traceId]();
+			}, traceId);
 		};
 		return { completion: emitter, cancel };
 	}
