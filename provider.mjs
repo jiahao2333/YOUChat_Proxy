@@ -104,6 +104,34 @@ class YouProvider {
 		const { page, browser } = session;
 		const emitter = new EventEmitter();
 
+		// 计算用户消息长度
+		let userMessage = [{ question: "", answer: "" }];
+		let userQuery = "";
+		let lastUpdate = true;
+
+		messages.forEach((msg) => {
+			if (msg.role == "system" || msg.role == "user") {
+				if (lastUpdate) {
+					userMessage[userMessage.length - 1].question += msg.content + "\n";
+				} else if (userMessage[userMessage.length - 1].question == "") {
+					userMessage[userMessage.length - 1].question += msg.content + "\n";
+				} else {
+					userMessage.push({ question: msg.content + "\n", answer: "" });
+				}
+				lastUpdate = true;
+			} else if (msg.role == "assistant") {
+				if (!lastUpdate) {
+					userMessage[userMessage.length - 1].answer += msg.content + "\n";
+				} else if (userMessage[userMessage.length - 1].answer == "") {
+					userMessage[userMessage.length - 1].answer += msg.content + "\n";
+				} else {
+					userMessage.push({ question: "", answer: msg.content + "\n" });
+				}
+				lastUpdate = false;
+			}
+		});
+		userQuery = userMessage[userMessage.length - 1].question;
+
 		// 检查该session是否已经创建对应模型的对应user chat mode
 		let userChatModeId = "custom";
 		if (useCustomMode) {
@@ -141,42 +169,48 @@ class YouProvider {
 			console.log("Custom mode is disabled, using default mode.");
 		}
 
-		// 将用户消息转换为纯文本
-		let previousMessages = messages.map((msg) => msg.content).join("\n\n");
+		// 试算用户消息长度
+		if (encodeURIComponent(JSON.stringify(userMessage)).length + encodeURIComponent(userQuery).length > 32000) {
+			console.log("Using file upload mode");
+			// 将用户消息转换为纯文本
+			let previousMessages = messages.map((msg) => msg.content).join("\n\n");
+			userQuery = " ";
+			userMessage = [];
 
-		// GET https://you.com/api/get_nonce to get nonce
-		let nonce = await page.evaluate(() => {
-			return fetch("https://you.com/api/get_nonce").then((res) => res.text());
-		});
-		if (!nonce) throw new Error("Failed to get nonce");
+			// GET https://you.com/api/get_nonce to get nonce
+			let nonce = await page.evaluate(() => {
+				return fetch("https://you.com/api/get_nonce").then((res) => res.text());
+			});
+			if (!nonce) throw new Error("Failed to get nonce");
 
-		// POST https://you.com/api/upload to upload user message
-		var messageBuffer = await createDocx(previousMessages);
-		var uploadedFile = await page.evaluate(
-			async (messageBuffer, nonce) => {
-				try {
-					var blob = new Blob([new Uint8Array(messageBuffer)], {
-						type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-					});
-					var form_data = new FormData();
-					form_data.append("file", blob, "messages.docx");
-					result = await fetch("https://you.com/api/upload", {
-						method: "POST",
-						headers: {
-							"X-Upload-Nonce": nonce,
-						},
-						body: form_data,
-					}).then((res) => res.json());
-					return result;
-				} catch (e) {
-					return null;
-				}
-			},
-			[...messageBuffer],
-			nonce
-		);
-		if (!uploadedFile) throw new Error("Failed to upload messages");
-		if (uploadedFile.error) throw new Error(uploadedFile.error);
+			// POST https://you.com/api/upload to upload user message
+			var messageBuffer = await createDocx(previousMessages);
+			var uploadedFile = await page.evaluate(
+				async (messageBuffer, nonce) => {
+					try {
+						var blob = new Blob([new Uint8Array(messageBuffer)], {
+							type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+						});
+						var form_data = new FormData();
+						form_data.append("file", blob, "messages.docx");
+						let result = await fetch("https://you.com/api/upload", {
+							method: "POST",
+							headers: {
+								"X-Upload-Nonce": nonce,
+							},
+							body: form_data,
+						}).then((res) => res.json());
+						return result;
+					} catch (e) {
+						return null;
+					}
+				},
+				[...messageBuffer],
+				nonce
+			);
+			if (!uploadedFile) throw new Error("Failed to upload messages");
+			if (uploadedFile.error) throw new Error(uploadedFile.error);
+		}
 
 		let msgid = uuidv4();
 		let traceId = uuidv4();
@@ -212,20 +246,21 @@ class YouProvider {
 		req_param.append("page", "1");
 		req_param.append("count", "10");
 		req_param.append("safeSearch", "Off");
-		req_param.append("q", " ");
+		req_param.append("q", userQuery);
 		req_param.append("chatId", traceId);
 		req_param.append("traceId", `${traceId}|${msgid}|${new Date().toISOString()}`);
 		req_param.append("conversationTurnId", msgid);
 		if (userChatModeId == "custom") req_param.append("selectedAiModel", proxyModel);
 		req_param.append("selectedChatMode", userChatModeId);
-		req_param.append("pastChatLength", "0");
+		req_param.append("pastChatLength", userMessage.length);
 		req_param.append("queryTraceId", traceId);
 		req_param.append("use_personalization_extraction", "false");
 		req_param.append("domain", "youchat");
 		req_param.append("responseFilter", "WebPages,TimeZone,Computation,RelatedSearches");
 		req_param.append("mkt", "ja-JP");
-		req_param.append("userFiles", JSON.stringify([{ user_filename: "messages.docx", filename: uploadedFile.filename, size: messageBuffer.length }]));
-		req_param.append("chat", "[]");
+		if (uploadedFile)
+			req_param.append("userFiles", JSON.stringify([{ user_filename: "messages.docx", filename: uploadedFile.filename, size: messageBuffer.length }]));
+		req_param.append("chat", JSON.stringify(userMessage));
 		var url = "https://you.com/api/streamingSearch?" + req_param.toString();
 		console.log("正在发送请求");
 		emitter.emit("start", traceId);
