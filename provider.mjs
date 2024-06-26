@@ -159,10 +159,14 @@ class YouProvider {
 					proxyModel,
 					uuidv4().substring(0, 4)
 				);
-				if (!userChatMode) console.log("Failed to create user chat mode, will use default mode instead.");
-				this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel] = userChatMode.chat_mode_id;
-				// 写回config
-				fs.writeFileSync("./config.mjs", "export const config = " + JSON.stringify(this.config, null, 4));
+				if(userChatMode.chat_mode_id){
+					this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel] = userChatMode.chat_mode_id;
+					// 写回config
+					fs.writeFileSync("./config.mjs", "export const config = " + JSON.stringify(this.config, null, 4));
+				}else{
+					if(userChatMode.error) console.log(userChatMode.error)
+					console.log("Failed to create user chat mode, will use default mode instead.");
+				}
 			}
 			userChatModeId = this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel];
 		} else {
