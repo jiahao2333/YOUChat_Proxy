@@ -45,12 +45,16 @@ var provider = new YouProvider(config);
 await provider.init(config);
 
 // handle preflight request
-app.options("/v1/messages", (req, res) => {
-	res.setHeader("Access-Control-Allow-Origin", "*");
-	res.setHeader("Access-Control-Allow-Methods", "*");
-	res.setHeader("Access-Control-Allow-Headers", "*");
-	res.setHeader("Access-Control-Max-Age", "86400");
-	res.status(200).end();
+app.use((req, res, next) => {
+    if (req.method === "OPTIONS") {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "*");
+        res.setHeader("Access-Control-Allow-Headers", "*");
+        res.setHeader("Access-Control-Max-Age", "86400");
+        res.status(200).end();
+    } else {
+        next();
+    }
 });
 // openai format model request
 app.get("/v1/models", OpenAIApiKeyAuth, (req, res) => {
@@ -122,30 +126,28 @@ app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
 				completion.on("completion", (id, text) => {
 					if (jsonBody.stream) {
 						// send message delta
-						if (jsonBody.stream) {
-							res.write(
-								createEvent("data", {
-									choices: [
-										{
-											content_filter_results: {
-												hate: { filtered: false, severity: "safe" },
-												self_harm: { filtered: false, severity: "safe" },
-												sexual: { filtered: false, severity: "safe" },
-												violence: { filtered: false, severity: "safe" },
-											},
-											delta: { content: text },
-											finish_reason: null,
-											index: 0,
+						res.write(
+							createEvent("data", {
+								choices: [
+									{
+										content_filter_results: {
+											hate: { filtered: false, severity: "safe" },
+											self_harm: { filtered: false, severity: "safe" },
+											sexual: { filtered: false, severity: "safe" },
+											violence: { filtered: false, severity: "safe" },
 										},
-									],
-									created: Math.floor(new Date().getTime() / 1000),
-									id: id,
-									model: jsonBody.model,
-									object: "chat.completion.chunk",
-									system_fingerprint: "114514",
-								})
-							);
-						}
+										delta: { content: text },
+										finish_reason: null,
+										index: 0,
+									},
+								],
+								created: Math.floor(new Date().getTime() / 1000),
+								id: id,
+								model: jsonBody.model,
+								object: "chat.completion.chunk",
+								system_fingerprint: "114514",
+							})
+						);
 					} else {
 						// 只会发一次，发送final response
 						res.write(
@@ -312,15 +314,13 @@ app.post("/v1/messages", AnthropicApiKeyAuth, (req, res) => {
 				completion.on("completion", (id, text) => {
 					if (jsonBody.stream) {
 						// send message delta
-						if (jsonBody.stream) {
-							res.write(
-								createEvent("content_block_delta", {
-									type: "content_block_delta",
-									index: 0,
-									delta: { type: "text_delta", text: text },
-								})
-							);
-						}
+						res.write(
+							createEvent("content_block_delta", {
+								type: "content_block_delta",
+								index: 0,
+								delta: { type: "text_delta", text: text },
+							})
+						);
 					} else {
 						// 只会发一次，发送final response
 						res.write(
