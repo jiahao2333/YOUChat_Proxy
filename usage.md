@@ -7,10 +7,10 @@
 
 2. 打开 F12（DevTools），找到 Console
 
-3. 在 > 后面粘贴以下代码并回车。然后复制所有内容（Cookie）。
+3. 在 > 后面粘贴以下代码并回车。然后复制所有输出内容（Cookie）。
 
 ```javascript
-prompt("请Ctrl+C复制以下所有内容（Cookie）",document.cookie)
+console.log(document.cookie)
 ```
 
 4. 下载或Clone本项目代码，解压
