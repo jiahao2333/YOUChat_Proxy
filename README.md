@@ -2,7 +2,7 @@
 
 A proxy for YOU Chat.
 
-把 YOU.Com 转换为 Anthropic 格式的通用代理。
+把 YOU.Com 转换为通用代理。
 
 如果您觉得本项目对您有帮助，请考虑[请我喝杯蜜雪冰城](https://github.com/sponsors/Archeb?frequency=one-time)
 
