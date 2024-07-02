@@ -2,6 +2,7 @@ import express from "express";
 import { createEvent } from "./utils.mjs";
 import YouProvider from "./provider.mjs";
 import localtunnel from 'localtunnel';
+import { v4 as uuidv4 } from 'uuid';
 const app = express();
 const port = process.env.PORT || 8080;
 const validApiKey = process.env.PASSWORD;
