@@ -105,38 +105,29 @@ class YouProvider {
 
 	detectBrowser() {
 		const platform = os.platform();
-		let chromePath = null;
-		let edgePath = null;
+		let browsers = {
+			'chrome': null,
+			'edge': null
+		};
 
 		if (platform === 'win32') {
-			// Windows 系统
-			chromePath = this.findWindowsBrowser('Chrome');
-			edgePath = this.findWindowsBrowser('Edge');
+			browsers.chrome = this.findWindowsBrowser('Chrome');
+			browsers.edge = this.findWindowsBrowser('Edge');
 		} else if (platform === 'darwin') {
-			// macOS 系统
-			chromePath = this.findMacOSBrowser('Google Chrome');
-			edgePath = this.findMacOSBrowser('Microsoft Edge');
+			browsers.chrome = this.findMacOSBrowser('Google Chrome');
+			browsers.edge = this.findMacOSBrowser('Microsoft Edge');
 		} else if (platform === 'linux') {
-			// Linux 系统
-			chromePath = this.findLinuxBrowser('google-chrome');
-			edgePath = this.findLinuxBrowser('microsoft-edge');
+			browsers.chrome = this.findLinuxBrowser('google-chrome');
+			browsers.edge = this.findLinuxBrowser('microsoft-edge');
 		}
 
+		const preferredBrowser = this.preferredBrowser === 'auto' || this.preferredBrowser === undefined 
+			? Object.keys(browsers).find(browser => browsers[browser]) 
+			: this.preferredBrowser;
 
-		if (this.preferredBrowser === 'chrome' && chromePath) {
-			console.log('使用Chrome浏览器');
-			return chromePath;
-		} else if (this.preferredBrowser === 'edge' && edgePath) {
-			console.log('使用Edge浏览器');
-			return edgePath;
-		} else if (this.preferredBrowser === 'auto' || this.preferredBrowser === undefined) {
-			if (chromePath) {
-				console.log('使用Chrome浏览器');
-				return chromePath;
-			} else if (edgePath) {
-				console.log('使用Edge浏览器');
-				return edgePath;
-			}
+		if (browsers[preferredBrowser]) {
+			console.log(`使用${preferredBrowser === 'chrome' ? 'Chrome' : 'Edge'}浏览器`);
+			return browsers[preferredBrowser];
 		}
 
 		console.error('未找到Chrome或Edge浏览器，请确保已安装其中之一');
@@ -144,6 +135,12 @@ class YouProvider {
 	}
 
 	findWindowsBrowser(browserName) {
+		const regKeys = {
+			'Chrome': ['chrome.exe', 'Google\\Chrome'],
+			'Edge': ['msedge.exe', 'Microsoft\\Edge']
+		};
+		const [exeName, folderName] = regKeys[browserName];
+
 		const regQuery = (key) => {
 			try {
 				return execSync(`reg query "${key}" /ve`).toString().trim().split('\r\n').pop().split('    ').pop();
@@ -152,27 +149,33 @@ class YouProvider {
 			}
 		};
 
-		let browserPath = null;
-		if (browserName === 'Chrome') {
-			browserPath = regQuery('HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe');
-		} else if (browserName === 'Edge') {
-			browserPath = regQuery('HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe');
-		}
+		let browserPath = regQuery(`HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`) ||
+						  regQuery(`HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`);
 
 		if (browserPath && fs.existsSync(browserPath)) {
 			return browserPath;
 		}
 
-		// 如果注册表查询失败，尝试常见安装路径
 		const commonPaths = [
-			`C:\\Program Files\\${browserName}\\Application\\${browserName.toLowerCase()}.exe`,
-			`C:\\Program Files (x86)\\${browserName}\\Application\\${browserName.toLowerCase()}.exe`,
-			`${process.env.LOCALAPPDATA}\\${browserName}\\Application\\${browserName.toLowerCase()}.exe`,
+			`C:\\Program Files\\${browserName}\\Application\\${exeName}`,
+			`C:\\Program Files (x86)\\${browserName}\\Application\\${exeName}`,
+			`${process.env.LOCALAPPDATA}\\${browserName}\\Application\\${exeName}`,
+			`${process.env.USERPROFILE}\\AppData\\Local\\${browserName}\\Application\\${exeName}`,
 		];
 
-		for (const path of commonPaths) {
-			if (fs.existsSync(path)) {
-				return path;
+		const foundPath = commonPaths.find(path => fs.existsSync(path));
+		if (foundPath) {
+			return foundPath;
+		}
+
+		const userAppDataPath = process.env.LOCALAPPDATA || `${process.env.USERPROFILE}\\AppData\\Local`;
+		const appDataPath = path.join(userAppDataPath, folderName, 'Application');
+		
+		if (fs.existsSync(appDataPath)) {
+			const files = fs.readdirSync(appDataPath);
+			const exePath = files.find(file => file.toLowerCase() === exeName.toLowerCase());
+			if (exePath) {
+				return path.join(appDataPath, exePath);
 			}
 		}
 
