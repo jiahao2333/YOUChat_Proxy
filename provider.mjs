@@ -103,50 +103,104 @@ class YouProvider {
         console.log(`验证完毕，有效cookie数量 ${Object.keys(this.sessions).filter((username) => this.sessions[username].valid).length}`);
     }
 
-    detectBrowser() {
-        const platform = os.platform();
-        let chromePath;
-        let edgePath;
+	detectBrowser() {
+		const platform = os.platform();
+		let chromePath = null;
+		let edgePath = null;
 
-        if (platform === 'win32') {
-            chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-            edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-        } else if (platform === 'darwin') {
-            chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-            edgePath = '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge';
-        } else if (platform === 'linux') {
-            try {
-                chromePath = execSync('which google-chrome').toString().trim();
-            } catch (error) {
-                chromePath = null;
-            }
-            try {
-                edgePath = execSync('which microsoft-edge').toString().trim();
-            } catch (error) {
-                edgePath = null;
-            }
-        }
+		if (platform === 'win32') {
+			// Windows 系统
+			chromePath = this.findWindowsBrowser('Chrome');
+			edgePath = this.findWindowsBrowser('Edge');
+		} else if (platform === 'darwin') {
+			// macOS 系统
+			chromePath = this.findMacOSBrowser('Google Chrome');
+			edgePath = this.findMacOSBrowser('Microsoft Edge');
+		} else if (platform === 'linux') {
+			// Linux 系统
+			chromePath = this.findLinuxBrowser('google-chrome');
+			edgePath = this.findLinuxBrowser('microsoft-edge');
+		}
 
-        // 根据preferredBrowser的值来决定使用哪个浏览器
-        if (this.preferredBrowser === 'chrome' && fs.existsSync(chromePath)) {
-            console.log('使用Chrome浏览器');
-            return chromePath;
-        } else if (this.preferredBrowser === 'edge' && fs.existsSync(edgePath)) {
-            console.log('使用Edge浏览器');
-            return edgePath;
-        } else if (this.preferredBrowser === 'auto' || this.preferredBrowser === undefined) {
-            if (fs.existsSync(chromePath)) {
-                console.log('使用Chrome浏览器');
-                return chromePath;
-            } else if (fs.existsSync(edgePath)) {
-                console.log('使用Edge浏览器');
-                return edgePath;
-            }
-        }
 
-        console.error('未找到Chrome或Edge浏览器，请确保已安装其中之一');
-        process.exit(1);
-    }
+		if (this.preferredBrowser === 'chrome' && chromePath) {
+			console.log('使用Chrome浏览器');
+			return chromePath;
+		} else if (this.preferredBrowser === 'edge' && edgePath) {
+			console.log('使用Edge浏览器');
+			return edgePath;
+		} else if (this.preferredBrowser === 'auto' || this.preferredBrowser === undefined) {
+			if (chromePath) {
+				console.log('使用Chrome浏览器');
+				return chromePath;
+			} else if (edgePath) {
+				console.log('使用Edge浏览器');
+				return edgePath;
+			}
+		}
+
+		console.error('未找到Chrome或Edge浏览器，请确保已安装其中之一');
+		process.exit(1);
+	}
+
+	findWindowsBrowser(browserName) {
+		const regQuery = (key) => {
+			try {
+				return execSync(`reg query "${key}" /ve`).toString().trim().split('\r\n').pop().split('    ').pop();
+			} catch (error) {
+				return null;
+			}
+		};
+
+		let browserPath = null;
+		if (browserName === 'Chrome') {
+			browserPath = regQuery('HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe');
+		} else if (browserName === 'Edge') {
+			browserPath = regQuery('HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe');
+		}
+
+		if (browserPath && fs.existsSync(browserPath)) {
+			return browserPath;
+		}
+
+		// 如果注册表查询失败，尝试常见安装路径
+		const commonPaths = [
+			`C:\\Program Files\\${browserName}\\Application\\${browserName.toLowerCase()}.exe`,
+			`C:\\Program Files (x86)\\${browserName}\\Application\\${browserName.toLowerCase()}.exe`,
+			`${process.env.LOCALAPPDATA}\\${browserName}\\Application\\${browserName.toLowerCase()}.exe`,
+		];
+
+		for (const path of commonPaths) {
+			if (fs.existsSync(path)) {
+				return path;
+			}
+		}
+
+		return null;
+	}
+
+	findMacOSBrowser(browserName) {
+		const paths = [
+			`/Applications/${browserName}.app/Contents/MacOS/${browserName}`,
+			`${os.homedir()}/Applications/${browserName}.app/Contents/MacOS/${browserName}`,
+		];
+
+		for (const path of paths) {
+			if (fs.existsSync(path)) {
+				return path;
+			}
+		}
+
+		return null;
+	}
+
+	findLinuxBrowser(browserName) {
+		try {
+			return execSync(`which ${browserName}`).toString().trim();
+		} catch (error) {
+			return null;
+		}
+	}
 
 	async getCompletion(username, messages, stream = false, proxyModel, useCustomMode = false) {
 		const session = this.sessions[username];
