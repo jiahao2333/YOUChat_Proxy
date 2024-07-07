@@ -213,6 +213,18 @@ class YouProvider {
 
 		const { page, browser } = session;
 		const emitter = new EventEmitter();
+		
+		// 检查页面是否已经加载完成
+		const isLoaded = await page.evaluate(() => {
+			return document.readyState === 'complete' || document.readyState === 'interactive';
+		});
+
+		if (!isLoaded) {
+			console.log('页面尚未加载完成，等待加载...');
+			await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {
+				console.log('页面加载超时，继续执行');
+			});
+		}
 
 		// 计算用户消息长度
 		let userMessage = [{ question: "", answer: "" }];
@@ -378,57 +390,65 @@ class YouProvider {
 		var url = "https://you.com/api/streamingSearch?" + req_param.toString();
 		console.log("正在发送请求");
 		emitter.emit("start", traceId);
-		page.evaluate(
-			async (url, traceId) => {
-				var evtSource = new EventSource(url);
-				var callbackName = "callback" + traceId;
-				evtSource.onerror = (error) => {
-					window[callbackName]("error", error);
-					evtSource.close();
-				};
-				evtSource.addEventListener(
-					"youChatToken",
-					(event) => {
-						var data = event.data;
-						window[callbackName]("youChatToken", data);
-					},
-					false
-				);
-				evtSource.addEventListener(
-					"done",
-					(event) => {
-						window[callbackName]("done", "");
+		try {
+			await page.evaluate(
+				async (url, traceId) => {
+					var evtSource = new EventSource(url);
+					var callbackName = "callback" + traceId;
+					evtSource.onerror = (error) => {
+						window[callbackName]("error", error);
 						evtSource.close();
-						fetch("https://you.com/api/chat/deleteChat", {
-							headers: {
-								"content-type": "application/json",
-							},
-							body: JSON.stringify({ chatId: traceId }),
-							method: "DELETE",
-						});
-					},
-					false
-				);
+					};
+					evtSource.addEventListener(
+						"youChatToken",
+						(event) => {
+							var data = event.data;
+							window[callbackName]("youChatToken", data);
+						},
+						false
+					);
+					evtSource.addEventListener(
+						"done",
+						(event) => {
+							window[callbackName]("done", "");
+							evtSource.close();
+							fetch("https://you.com/api/chat/deleteChat", {
+								headers: {
+									"content-type": "application/json",
+								},
+								body: JSON.stringify({ chatId: traceId }),
+								method: "DELETE",
+							});
+						},
+						false
+					);
 
-				evtSource.onmessage = (event) => {
-					const data = JSON.parse(event.data);
-					if (data.youChatToken) {
-						window[callbackName](youChatToken);
-					}
-				};
-				// 注册退出函数
-				window["exit" + traceId] = () => {
-					evtSource.close();
-				};
-			},
-			url,
-			traceId
-		);
+					evtSource.onmessage = (event) => {
+						const data = JSON.parse(event.data);
+						if (data.youChatToken) {
+							window[callbackName](youChatToken);
+						}
+					};
+					// 注册退出函数
+					window["exit" + traceId] = () => {
+						evtSource.close();
+					};
+				},
+				url,
+				traceId
+			);
+		} catch (error) {
+			console.error("评估过程中出错:", error);
+			emitter.emit("error", error);
+			return { completion: emitter, cancel: () => {} };
+		}
+
 		const cancel = () => {
 			page?.evaluate((traceId) => {
 				window["exit" + traceId]();
-			}, traceId);
+			}, traceId).catch(console.error);
 		};
+
 		return { completion: emitter, cancel };
 	}
 }
