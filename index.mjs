@@ -1,8 +1,8 @@
 import express from "express";
-import { createEvent } from "./utils.mjs";
+import { createEvent, getGitRevision } from "./utils.mjs";
 import YouProvider from "./provider.mjs";
-import localtunnel from 'localtunnel';
-import { v4 as uuidv4 } from 'uuid';
+import localtunnel from "localtunnel";
+import { v4 as uuidv4 } from "uuid";
 const app = express();
 const port = process.env.PORT || 8080;
 const validApiKey = process.env.PASSWORD;
@@ -48,15 +48,15 @@ await provider.init(config);
 
 // handle preflight request
 app.use((req, res, next) => {
-    if (req.method === "OPTIONS") {
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "*");
-        res.setHeader("Access-Control-Allow-Headers", "*");
-        res.setHeader("Access-Control-Max-Age", "86400");
-        res.status(200).end();
-    } else {
-        next();
-    }
+	if (req.method === "OPTIONS") {
+		res.setHeader("Access-Control-Allow-Origin", "*");
+		res.setHeader("Access-Control-Allow-Methods", "*");
+		res.setHeader("Access-Control-Allow-Headers", "*");
+		res.setHeader("Access-Control-Max-Age", "86400");
+		res.status(200).end();
+	} else {
+		next();
+	}
 });
 // openai format model request
 app.get("/v1/models", OpenAIApiKeyAuth, (req, res) => {
@@ -106,7 +106,13 @@ app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
 
 		// call provider to get completion
 		await provider
-			.getCompletion(randomSession, jsonBody.messages, jsonBody.stream ? true : false, jsonBody.model, process.env.USE_CUSTOM_MODE == "true" ? true : false)
+			.getCompletion(
+				randomSession,
+				jsonBody.messages,
+				jsonBody.stream ? true : false,
+				jsonBody.model,
+				process.env.USE_CUSTOM_MODE == "true" ? true : false
+			)
 			.then(({ completion, cancel }) => {
 				completion.on("start", (id) => {
 					if (jsonBody.stream) {
@@ -207,7 +213,9 @@ app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
 										sexual: { filtered: false, severity: "safe" },
 										violence: { filtered: false, severity: "safe" },
 									},
-									delta: { content: "Error occurred, please check the log.\n\n出现错误，请检查日志：<pre>" + error.stack || error + "</pre>" },
+									delta: {
+										content: "Error occurred, please check the log.\n\n出现错误，请检查日志：<pre>" + error.stack || error + "</pre>",
+									},
 									finish_reason: null,
 									index: 0,
 								},
@@ -418,7 +426,8 @@ app.post("/v1/messages", AnthropicApiKeyAuth, (req, res) => {
 
 // handle other
 app.use((req, res, next) => {
-	res.status(404).send("Not Found");
+	const { revision, branch } = getGitRevision();
+	res.status(404).send("Not Found (YouChat_Proxy " + revision + "@" + branch + ")");
 });
 
 app.listen(port, async () => {
@@ -427,29 +436,29 @@ app.listen(port, async () => {
 		console.log(`Proxy is currently running with no authentication`);
 	}
 	console.log(`Custom mode: ${process.env.USE_CUSTOM_MODE == "true" ? "enabled" : "disabled"}`);
-	
-    // 检查是否启用隧道
-    if (process.env.ENABLE_TUNNEL === "true") {
-        // 输出等待创建隧道的提示
-        console.log("创建隧道中...");
 
-        // 设置隧道配置
-        const tunnelOptions = { port: port };
-        if (process.env.SUBDOMAIN) {
-            tunnelOptions.subdomain = process.env.SUBDOMAIN;
-        }
+	// 检查是否启用隧道
+	if (process.env.ENABLE_TUNNEL === "true") {
+		// 输出等待创建隧道的提示
+		console.log("创建隧道中...");
 
-        try {
-            const tunnel = await localtunnel(tunnelOptions);
-            console.log(`隧道已成功创建，可通过以下URL访问: ${tunnel.url}/v1`);
+		// 设置隧道配置
+		const tunnelOptions = { port: port };
+		if (process.env.SUBDOMAIN) {
+			tunnelOptions.subdomain = process.env.SUBDOMAIN;
+		}
 
-            tunnel.on('close', () => {
-                console.log('已关闭隧道');
-            });
-        } catch (error) {
-            console.error('创建隧道失败:', error);
-        }
-    }
+		try {
+			const tunnel = await localtunnel(tunnelOptions);
+			console.log(`隧道已成功创建，可通过以下URL访问: ${tunnel.url}/v1`);
+
+			tunnel.on("close", () => {
+				console.log("已关闭隧道");
+			});
+		} catch (error) {
+			console.error("创建隧道失败:", error);
+		}
+	}
 });
 
 function AnthropicApiKeyAuth(req, res, next) {
