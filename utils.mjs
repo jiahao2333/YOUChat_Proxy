@@ -6,8 +6,8 @@ import { execSync } from "child_process";
 function getGitRevision() {
 	// get git revision and branch
 	try {
-		const revision = execSync("git rev-parse --short HEAD").toString().trim();
-		const branch = execSync("git rev-parse --abbrev-ref HEAD").toString().trim();
+		const revision = execSync("git rev-parse --short HEAD", { stdio: "pipe" }).toString().trim();
+		const branch = execSync("git rev-parse --abbrev-ref HEAD", { stdio: "pipe" }).toString().trim();
 		return { revision, branch };
 	} catch (e) {
 		return { revision: "unknown", branch: "unknown" };

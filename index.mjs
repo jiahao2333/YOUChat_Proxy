@@ -428,6 +428,7 @@ app.post("/v1/messages", AnthropicApiKeyAuth, (req, res) => {
 app.use((req, res, next) => {
 	const { revision, branch } = getGitRevision();
 	res.status(404).send("Not Found (YouChat_Proxy " + revision + "@" + branch + ")");
+	console.log("收到了错误路径的请求，请检查您使用的API端点是否正确。")
 });
 
 app.listen(port, async () => {
