@@ -75,6 +75,14 @@ function getSessionCookie(jwtSession, jwtToken) {
 			secure: true,
 			sameSite: "Lax",
 		},
+		{
+			name: "incognito",
+			value: "true",
+			domain: "you.com",
+			path: "/",
+			expires: 1800000000,
+			secure: true,
+		}
 	];
 }
 
