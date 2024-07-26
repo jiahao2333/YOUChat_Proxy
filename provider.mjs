@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import { createDirectoryIfNotExists, sleep, extractCookie, getSessionCookie, createDocx } from "./utils.mjs";
 import { execSync } from 'child_process';
 import os from 'os';
+import { createProxyAgent, getProxyArgs, getProxyEnv } from './proxyAgent.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +58,14 @@ class YouProvider {
                 customConfig: {
                     userDataDir: path.join(__dirname, "browser_profiles", username),
                     executablePath: browserPath,
+		    args: [...getProxyArgs()],
+                },
+                customLaunchOptions: {
+                    ignoreDefaultArgs: ['--disable-extensions'],
+                    env: {
+                        ...process.env,
+                        ...getProxyEnv(),
+                    },
                 },
             })
                 .then(async (response) => {
