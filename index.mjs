@@ -2,6 +2,7 @@ import express from "express";
 import { createEvent, getGitRevision } from "./utils.mjs";
 import YouProvider from "./provider.mjs";
 import localtunnel from "localtunnel";
+import ngrok from 'ngrok';
 import { v4 as uuidv4 } from "uuid";
 const app = express();
 const port = process.env.PORT || 8080;
@@ -438,28 +439,55 @@ app.listen(port, async () => {
 	}
 	console.log(`Custom mode: ${process.env.USE_CUSTOM_MODE == "true" ? "enabled" : "disabled"}`);
 
-	// 检查是否启用隧道
-	if (process.env.ENABLE_TUNNEL === "true") {
-		// 输出等待创建隧道的提示
-		console.log("创建隧道中...");
+    // 检查是否启用隧道
+    if (process.env.ENABLE_TUNNEL === "true") {
+        const tunnelType = process.env.TUNNEL_TYPE || "localtunnel";
+        console.log(`创建${tunnelType}隧道中...`);
 
-		// 设置隧道配置
-		const tunnelOptions = { port: port };
-		if (process.env.SUBDOMAIN) {
-			tunnelOptions.subdomain = process.env.SUBDOMAIN;
-		}
+        if (tunnelType === "localtunnel") {
+            // localtunnel
+            const tunnelOptions = { port: port };
+            if (process.env.SUBDOMAIN) {
+                tunnelOptions.subdomain = process.env.SUBDOMAIN;
+            }
 
-		try {
-			const tunnel = await localtunnel(tunnelOptions);
-			console.log(`隧道已成功创建，可通过以下URL访问: ${tunnel.url}/v1`);
+            try {
+                const tunnel = await localtunnel(tunnelOptions);
+                console.log(`隧道已成功创建，可通过以下URL访问: ${tunnel.url}/v1`);
 
-			tunnel.on("close", () => {
-				console.log("已关闭隧道");
-			});
-		} catch (error) {
-			console.error("创建隧道失败:", error);
-		}
-	}
+                tunnel.on("close", () => {
+                    console.log("已关闭隧道");
+                });
+            } catch (error) {
+                console.error("创建隧道失败:", error);
+            }
+        } else if (tunnelType === "ngrok") {
+            // ngrok
+            try {
+                const ngrokOptions = {
+                    addr: port,
+                    authtoken: process.env.NGROK_AUTH_TOKEN
+                };
+
+                // 添加自定义域名
+                if (process.env.NGROK_CUSTOM_DOMAIN) {
+                    ngrokOptions.hostname = process.env.NGROK_CUSTOM_DOMAIN;
+                } else if (process.env.SUBDOMAIN) {
+                    ngrokOptions.subdomain = process.env.SUBDOMAIN;
+                }
+
+                const url = await ngrok.connect(ngrokOptions);
+                console.log(`隧道已成功创建，可通过以下URL访问: ${url}/v1`);
+
+                process.on('SIGTERM', async () => {
+                    await ngrok.kill();
+                    console.log("已关闭隧道");
+                });
+            } catch (error) {
+                console.error("创建隧道失败:", error);
+            }
+        }
+    }
 });
 
 function AnthropicApiKeyAuth(req, res, next) {
