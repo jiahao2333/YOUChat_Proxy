@@ -43,6 +43,9 @@ set AI_MODEL=
 REM 自定义会话模式
 set USE_CUSTOM_MODE=false
 
+REM 是否启用隐身模式
+set INCOGNITO_MODE=false
+
 REM 运行 Node.js 应用程序
 node index.mjs
 

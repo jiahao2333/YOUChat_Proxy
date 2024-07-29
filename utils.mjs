@@ -34,7 +34,7 @@ function extractCookie(cookies) {
 }
 
 function getSessionCookie(jwtSession, jwtToken) {
-	return [
+	var sessionCookie = [
 		{
 			name: "stytch_session",
 			value: jwtSession,
@@ -74,16 +74,19 @@ function getSessionCookie(jwtSession, jwtToken) {
 			httpOnly: true,
 			secure: true,
 			sameSite: "Lax",
-		},
-		{
+		}
+	];
+	if(process.env.INCOGNITO_MODE === "true") {
+		sessionCookie.push({
 			name: "incognito",
 			value: "true",
 			domain: "you.com",
 			path: "/",
 			expires: 1800000000,
 			secure: true,
-		}
-	];
+		});
+	}
+	return sessionCookie;
 }
 
 function sleep(ms) {
