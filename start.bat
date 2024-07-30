@@ -1,53 +1,53 @@
 @echo off
 
-REM å®‰è£…ä¾èµ–åŒ…
+REM °²×°ÒÀÀµ°ü
 call npm install
 
-REM è®¾ç½®æ˜¯å¦å¯ç”¨éš§é“è®¿é—®
+REM ÉèÖÃÊÇ·ñÆôÓÃËíµÀ·ÃÎÊ
 set ENABLE_TUNNEL=false
 
-REM è®¾ç½®éš§é“ç±»åž‹ (localtunnel æˆ– ngrok)
+REM ÉèÖÃËíµÀÀàÐÍ (localtunnel »ò ngrok)
 set TUNNEL_TYPE=localtunnel
 
-REM è®¾ç½®localtunnelå­åŸŸå(ç•™ç©ºåˆ™ä¸ºéšæœºåŸŸå)
+REM ÉèÖÃlocaltunnel×ÓÓòÃû(Áô¿ÕÔòÎªËæ»úÓòÃû)
 set SUBDOMAIN=
 
-REM è®¾ç½® ngrok AUTH TOKEN
-REM è¿™æ˜¯ ngrok è´¦æˆ·çš„èº«ä»½éªŒè¯ä»¤ç‰Œã€‚å¯ä»¥åœ¨ ngrok ä»ªè¡¨æ¿çš„ "Auth" éƒ¨åˆ†æ‰¾åˆ°å®ƒã€‚
-REM å…è´¹è´¦æˆ·å’Œä»˜è´¹è´¦æˆ·éƒ½éœ€è¦è®¾ç½®æ­¤é¡¹ã€‚
-REM ngrokç½‘ç«™: https://dashboard.ngrok.com
+REM ÉèÖÃ ngrok AUTH TOKEN
+REM ÕâÊÇ ngrok ÕË»§µÄÉí·ÝÑéÖ¤ÁîÅÆ¡£¿ÉÒÔÔÚ ngrok ÒÇ±í°åµÄ "Auth" ²¿·ÖÕÒµ½Ëü¡£
+REM Ãâ·ÑÕË»§ºÍ¸¶·ÑÕË»§¶¼ÐèÒªÉèÖÃ´ËÏî¡£
+REM ngrokÍøÕ¾: https://dashboard.ngrok.com
 set NGROK_AUTH_TOKEN=
 
-REM è®¾ç½® ngrok è‡ªå®šä¹‰åŸŸå
-REM è¿™å…è®¸ä½¿ç”¨è‡ªå·±çš„åŸŸåè€Œä¸æ˜¯ ngrok çš„éšæœºå­åŸŸåã€‚
-REM æ³¨æ„ï¼šæ­¤åŠŸèƒ½ä»…é€‚ç”¨äºŽ ngrok ä»˜è´¹è´¦æˆ·ã€‚
-REM ä½¿ç”¨æ­¤åŠŸèƒ½å‰ï¼Œè¯·ç¡®ä¿å·²åœ¨ ngrok ä»ªè¡¨æ¿ä¸­æ·»åŠ å¹¶éªŒè¯äº†è¯¥åŸŸåã€‚
-REM æ ¼å¼ç¤ºä¾‹ï¼šyour-custom-domain.com
-REM å¦‚æžœä½¿ç”¨å…è´¹è´¦æˆ·æˆ–ä¸æƒ³ä½¿ç”¨è‡ªå®šä¹‰åŸŸåï¼Œè¯·å°†æ­¤é¡¹ç•™ç©ºã€‚
+REM ÉèÖÃ ngrok ×Ô¶¨ÒåÓòÃû
+REM ÕâÔÊÐíÊ¹ÓÃ×Ô¼ºµÄÓòÃû¶ø²»ÊÇ ngrok µÄËæ»ú×ÓÓòÃû¡£
+REM ×¢Òâ£º´Ë¹¦ÄÜ½öÊÊÓÃÓÚ ngrok ¸¶·ÑÕË»§¡£
+REM Ê¹ÓÃ´Ë¹¦ÄÜÇ°£¬ÇëÈ·±£ÒÑÔÚ ngrok ÒÇ±í°åÖÐÌí¼Ó²¢ÑéÖ¤ÁË¸ÃÓòÃû¡£
+REM ¸ñÊ½Ê¾Àý£ºyour-custom-domain.com
+REM Èç¹ûÊ¹ÓÃÃâ·ÑÕË»§»ò²»ÏëÊ¹ÓÃ×Ô¶¨ÒåÓòÃû£¬Çë½«´ËÏîÁô¿Õ¡£
 set NGROK_CUSTOM_DOMAIN=
 
-REM è®¾ç½® https_proxy ä»£ç†ï¼Œå¯ä»¥ä½¿ç”¨æœ¬åœ°çš„socks5æˆ–http(s)ä»£ç†
-REM ä¾‹å¦‚ï¼Œä½¿ç”¨ HTTP ä»£ç†ï¼šexport https_proxy=http://127.0.0.1:7890
-REM æˆ–è€…ä½¿ç”¨ SOCKS5 ä»£ç†ï¼šexport https_proxy=socks5://host:port:username:password
+REM ÉèÖÃ https_proxy ´úÀí£¬¿ÉÒÔÊ¹ÓÃ±¾µØµÄsocks5»òhttp(s)´úÀí
+REM ÀýÈç£¬Ê¹ÓÃ HTTP ´úÀí£ºexport https_proxy=http://127.0.0.1:7890
+REM »òÕßÊ¹ÓÃ SOCKS5 ´úÀí£ºexport https_proxy=socks5://host:port:username:password
 set https_proxy=
 
-REM è®¾ç½® PASSWORD APIå¯†ç 
+REM ÉèÖÃ PASSWORD APIÃÜÂë
 set PASSWORD=
 
-REM è®¾ç½® PORT ç«¯å£
+REM ÉèÖÃ PORT ¶Ë¿Ú
 set PORT=8080
 
-REM è®¾ç½®AIæ¨¡åž‹(Claudeç³»åˆ—æ¨¡åž‹ç›´æŽ¥åœ¨é…’é¦†ä¸­é€‰æ‹©å³å¯ä½¿ç”¨ï¼Œä¿®æ”¹`AI_MODEL`çŽ¯å¢ƒå˜é‡å¯ä»¥åˆ‡æ¢Claudeä»¥å¤–çš„æ¨¡åž‹ï¼Œæ”¯æŒçš„æ¨¡åž‹åå­—å¦‚ä¸‹ (è¯·å‚è€ƒå®˜ç½‘èŽ·å–æœ€æ–°æ¨¡åž‹))
+REM ÉèÖÃAIÄ£ÐÍ(ClaudeÏµÁÐÄ£ÐÍÖ±½ÓÔÚ¾Æ¹ÝÖÐÑ¡Ôñ¼´¿ÉÊ¹ÓÃ£¬ÐÞ¸Ä`AI_MODEL`»·¾³±äÁ¿¿ÉÒÔÇÐ»»ClaudeÒÔÍâµÄÄ£ÐÍ£¬Ö§³ÖµÄÄ£ÐÍÃû×ÖÈçÏÂ (Çë²Î¿¼¹ÙÍø»ñÈ¡×îÐÂÄ£ÐÍ))
 set AI_MODEL=
 
-REM è‡ªå®šä¹‰ä¼šè¯æ¨¡å¼
+REM ×Ô¶¨Òå»á»°Ä£Ê½
 set USE_CUSTOM_MODE=false
 
-REM æ˜¯å¦å¯ç”¨éšèº«æ¨¡å¼
+REM ÊÇ·ñÆôÓÃÒþÉíÄ£Ê½
 set INCOGNITO_MODE=false
 
-REM è¿è¡Œ Node.js åº”ç”¨ç¨‹åº
+REM ÔËÐÐ Node.js Ó¦ÓÃ³ÌÐò
 node index.mjs
 
-REM æš‚åœè„šæœ¬æ‰§è¡Œ,ç­‰å¾…ç”¨æˆ·æŒ‰ä»»æ„é”®é€€å‡º
+REM ÔÝÍ£½Å±¾Ö´ÐÐ,µÈ´ýÓÃ»§°´ÈÎÒâ¼üÍË³ö
 pause
