@@ -4,6 +4,7 @@ import YouProvider from "./provider.mjs";
 import localtunnel from "localtunnel";
 import ngrok from 'ngrok';
 import { v4 as uuidv4 } from "uuid";
+import './proxyAgent.mjs';
 const app = express();
 const port = process.env.PORT || 8080;
 const validApiKey = process.env.PASSWORD;
@@ -466,7 +467,7 @@ app.listen(port, async () => {
             try {
                 const ngrokOptions = {
                     addr: port,
-                    authtoken: process.env.NGROK_AUTH_TOKEN
+                    authtoken: process.env.NGROK_AUTH_TOKEN,
                 };
 
                 // 添加自定义域名
@@ -475,10 +476,20 @@ app.listen(port, async () => {
                 } else if (process.env.SUBDOMAIN) {
                     ngrokOptions.subdomain = process.env.SUBDOMAIN;
                 }
-
+		
+                // 暂时清除代理
+                const originalHttpProxy = process.env.HTTP_PROXY;
+                const originalHttpsProxy = process.env.HTTPS_PROXY;
+                delete process.env.HTTP_PROXY;
+                delete process.env.HTTPS_PROXY;
+		
                 const url = await ngrok.connect(ngrokOptions);
                 console.log(`隧道已成功创建，可通过以下URL访问: ${url}/v1`);
-
+		
+                // 恢复代理
+                if (originalHttpProxy) process.env.HTTP_PROXY = originalHttpProxy;
+                if (originalHttpsProxy) process.env.HTTPS_PROXY = originalHttpsProxy;
+		
                 process.on('SIGTERM', async () => {
                     await ngrok.kill();
                     console.log("已关闭隧道");
