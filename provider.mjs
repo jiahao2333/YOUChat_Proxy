@@ -265,14 +265,19 @@ class YouProvider {
 				// 创建新的user chat mode
 				let userChatMode = await page.evaluate(
 					async (proxyModel, proxyModelName) => {
-						return fetch("https://you.com/api/user_chat_modes", {
+						return fetch("https://you.com/api/custom_assistants/assistants", {
 							method: "POST",
 							body: JSON.stringify({
 								aiModel: proxyModel,
-								chatModeName: proxyModelName,
 								hasLiveWebAccess: false,
 								hasPersonalization: false,
+								hideInstructions: true,
+								includeFollowUps: false,
 								instructions: "Please review the attached prompt",
+								instructionsSummary:"",
+								isUserOwned: true,
+								name: proxyModelName,
+								visibility: "private",
 							}),
 							headers: {
 								"Content-Type": "application/json",
