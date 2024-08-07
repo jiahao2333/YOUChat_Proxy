@@ -43,6 +43,11 @@ set AI_MODEL=
 REM 自定义会话模式
 set USE_CUSTOM_MODE=false
 
+REM 启用模式轮换
+REM 只有当 USE_CUSTOM_MODE 和 ENABLE_MODE_ROTATION 都设置为 true 时，才会启用模式轮换功能。
+REM 可以在自定义模式和默认模式之间动态切换
+set ENABLE_MODE_ROTATION=false
+
 REM 是否启用隐身模式
 set INCOGNITO_MODE=false
 
