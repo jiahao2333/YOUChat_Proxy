@@ -8,6 +8,7 @@ import { createDirectoryIfNotExists, sleep, extractCookie, getSessionCookie, cre
 import { execSync } from 'child_process';
 import os from 'os';
 import './proxyAgent.mjs';
+import { formatMessages } from './formatMessages.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,33 @@ class YouProvider {
         this.sessions = {};
         // 可以是 'chrome', 'edge', 或 'auto'
         this.preferredBrowser = 'auto';
+        this.isCustomModeEnabled = process.env.USE_CUSTOM_MODE === "true";
+        this.isRotationEnabled = process.env.ENABLE_MODE_ROTATION === "true";
+        this.currentMode = "default";
+        this.switchCounter = 0;
+        this.requestsInCurrentMode = 0;
+        this.switchThreshold = this.getRandomSwitchThreshold();
+	this.lastDefaultThreshold = 0; // 记录上一次default模式的阈值
+    }
+
+    getRandomSwitchThreshold() {
+        if (this.currentMode === "default") {
+            return Math.floor(Math.random() * 6) + 1;
+        } else {
+            // custom模式回合不小于上一次default
+            return Math.floor(Math.random() * (7 - this.lastDefaultThreshold)) + this.lastDefaultThreshold;
+        }
+    }
+
+    switchMode() {
+        if (this.currentMode === "default") {
+            this.lastDefaultThreshold = this.switchThreshold;
+        }
+        this.currentMode = this.currentMode === "custom" ? "default" : "custom";
+        this.switchCounter = 0;
+        this.requestsInCurrentMode = 0;
+        this.switchThreshold = this.getRandomSwitchThreshold();
+        console.log(`切换到${this.currentMode}模式，将在${this.switchThreshold}次请求后再次切换`);
     }
 
     async init(config) {
@@ -214,6 +242,19 @@ class YouProvider {
 
 		const { page, browser } = session;
 		const emitter = new EventEmitter();
+	        // 处理模式轮换逻辑
+	        if (this.isCustomModeEnabled && this.isRotationEnabled) {
+	            this.switchCounter++;
+	            this.requestsInCurrentMode++;
+	            console.log(`当前模式: ${this.currentMode}, 本模式下的请求次数: ${this.requestsInCurrentMode}, 距离下次切换还有 ${this.switchThreshold - this.switchCounter} 次请求`);
+	
+	            if (this.switchCounter >= this.switchThreshold) {
+	                this.switchMode();
+	            }
+	        }
+	
+	        // 根据轮换状态决定是否使用自定义模式
+	        const effectiveUseCustomMode = this.isRotationEnabled ? (this.currentMode === "custom") : useCustomMode;
 		
 		// 检查页面是否已经加载完成
 		const isLoaded = await page.evaluate(() => {
@@ -226,13 +267,22 @@ class YouProvider {
 				console.log('页面加载超时，继续执行');
 			});
 		}
+		
+		// 格式化 messages
+		const formattedMessages = formatMessages(messages);
 
-		// 计算用户消息长度
+		// 将格式化后的 messages 保存为 txt 文件
+		const debugFilePath = path.join(__dirname, 'debug_messages.txt');
+		fs.writeFileSync(debugFilePath, formattedMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n'));
+		console.log(`Debug messages saved to ${debugFilePath}`);
+		
+
+		// 计算用户消息长度，使用格式化后的 messages
 		let userMessage = [{ question: "", answer: "" }];
 		let userQuery = "";
 		let lastUpdate = true;
 
-		messages.forEach((msg) => {
+		formattedMessages.forEach((msg) => {
 			if (msg.role == "system" || msg.role == "user") {
 				if (lastUpdate) {
 					userMessage[userMessage.length - 1].question += msg.content + "\n";
@@ -257,7 +307,7 @@ class YouProvider {
 
 		// 检查该session是否已经创建对应模型的对应user chat mode
 		let userChatModeId = "custom";
-		if (useCustomMode) {
+		if (effectiveUseCustomMode) {
 			if (!this.config.sessions[session.configIndex].user_chat_mode_id) {
 				this.config.sessions[session.configIndex].user_chat_mode_id = {};
 			}
