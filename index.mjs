@@ -439,6 +439,7 @@ app.listen(port, async () => {
 		console.log(`Proxy is currently running with no authentication`);
 	}
 	console.log(`Custom mode: ${process.env.USE_CUSTOM_MODE == "true" ? "enabled" : "disabled"}`);
+	console.log(`Mode rotation: ${process.env.ENABLE_MODE_ROTATION === "true" ? "enabled" : "disabled"}`);
 
     // 检查是否启用隧道
     if (process.env.ENABLE_TUNNEL === "true") {
