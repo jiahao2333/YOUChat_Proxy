@@ -43,6 +43,14 @@ export AI_MODEL=
 # 自定义会话模式
 export USE_CUSTOM_MODE=false
 
+# 启用模式轮换
+# 只有当 USE_CUSTOM_MODE 和 ENABLE_MODE_ROTATION 都设置为 true 时，才会启用模式轮换功能。
+# 可以在自定义模式和默认模式之间动态切换
+export ENABLE_MODE_ROTATION=false
+
+# 是否启用隐身模式
+export INCOGNITO_MODE=false
+
 # 运行 Node.js 应用程序
 node index.mjs
 
