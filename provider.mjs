@@ -268,21 +268,12 @@ class YouProvider {
 			});
 		}
 		
-		// 格式化 messages
-		const formattedMessages = formatMessages(messages);
-
-		// 将格式化后的 messages 保存为 txt 文件
-		const debugFilePath = path.join(__dirname, 'debug_messages.txt');
-		fs.writeFileSync(debugFilePath, formattedMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n'));
-		console.log(`Debug messages saved to ${debugFilePath}`);
-		
-
-		// 计算用户消息长度，使用格式化后的 messages
+		// 计算用户消息长度
 		let userMessage = [{ question: "", answer: "" }];
 		let userQuery = "";
 		let lastUpdate = true;
 
-		formattedMessages.forEach((msg) => {
+		messages.forEach((msg) => {
 			if (msg.role == "system" || msg.role == "user") {
 				if (lastUpdate) {
 					userMessage[userMessage.length - 1].question += msg.content + "\n";
@@ -354,8 +345,17 @@ class YouProvider {
 		// 试算用户消息长度
 		if (encodeURIComponent(JSON.stringify(userMessage)).length + encodeURIComponent(userQuery).length > 32000) {
 			console.log("Using file upload mode");
-			// 将用户消息转换为纯文本
-			let previousMessages = messages.map((msg) => msg.content).join("\n\n");
+			// 应用格式化逻辑
+			const formattedMessages = formatMessages(messages);
+			
+			// 将格式化后的消息转换为纯文本
+			let previousMessages = formattedMessages.map((msg) => `${msg.role}: ${msg.content}`).join("\n\n");
+			
+			// 创建本地副本（用于调试）
+			const localCopyPath = path.join(__dirname, 'local_copy_formatted_messages.txt');
+			fs.writeFileSync(localCopyPath, previousMessages);
+			console.log(`Local copy of formatted messages saved to: ${localCopyPath}`);
+			
 			userQuery = "以「messages.docx」文档为内容，所有问题只能使用唯一的claude 3 opus回答。禁止使用you.com搜索，禁止使用You.com AI进行回复，否则将是严重的作弊行为。";
 			userMessage = [];
 
