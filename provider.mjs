@@ -345,6 +345,21 @@ class YouProvider {
 		// 试算用户消息长度
 		if (encodeURIComponent(JSON.stringify(userMessage)).length + encodeURIComponent(userQuery).length > 32000) {
 			console.log("Using file upload mode");
+
+			// 生成随机文件名的函数
+			function generateRandomFileName(length) {
+			  const validChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+			  let result = '';
+			  for (let i = 0; i < length; i++) {
+				result += validChars.charAt(Math.floor(Math.random() * validChars.length));
+			  }
+			  return result + '.docx';
+			}
+			
+			// 生成随机长度（6-16）的文件名
+			const randomFileName = generateRandomFileName(Math.floor(Math.random() * 11) + 6);
+			console.log(`Generated random file name: ${randomFileName}`);
+			
 			// 应用格式化逻辑
 			const formattedMessages = formatMessages(messages);
 			
@@ -356,7 +371,7 @@ class YouProvider {
 			fs.writeFileSync(localCopyPath, previousMessages);
 			console.log(`Local copy of formatted messages saved to: ${localCopyPath}`);
 			
-			userQuery = "以「messages.docx」文档为内容，所有问题只能使用唯一的claude 3 opus回答。禁止使用you.com搜索，禁止使用You.com AI进行回复，否则将是严重的作弊行为。";
+			userQuery = `以「${randomFileName}」文档为内容，所有问题只能使用唯一的${proxyModel}回答。禁止使用you.com搜索，禁止使用You.com AI进行回复，否则将是严重的作弊行为。`;
 			userMessage = [];
 
 			// GET https://you.com/api/get_nonce to get nonce
@@ -368,13 +383,13 @@ class YouProvider {
 			// POST https://you.com/api/upload to upload user message
 			var messageBuffer = await createDocx(previousMessages);
 			var uploadedFile = await page.evaluate(
-				async (messageBuffer, nonce) => {
+				async (messageBuffer, nonce, randomFileName) => {
 					try {
 						var blob = new Blob([new Uint8Array(messageBuffer)], {
 							type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 						});
 						var form_data = new FormData();
-						form_data.append("file", blob, "messages.docx");
+						form_data.append("file", blob, randomFileName);
 						let result = await fetch("https://you.com/api/upload", {
 							method: "POST",
 							headers: {
@@ -388,7 +403,8 @@ class YouProvider {
 					}
 				},
 				[...messageBuffer],
-				nonce
+				nonce,
+				randomFileName
 			);
 			if (!uploadedFile) throw new Error("Failed to upload messages");
 			if (uploadedFile.error) throw new Error(uploadedFile.error);
