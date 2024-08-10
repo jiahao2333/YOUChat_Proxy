@@ -342,23 +342,23 @@ class YouProvider {
 			console.log("Custom mode is disabled, using default mode.");
 		}
 
+		// 生成随机文件名
+		function generateRandomFileName(length) {
+		  const validChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+		  let result = '';
+		  for (let i = 0; i < length; i++) {
+			result += validChars.charAt(Math.floor(Math.random() * validChars.length));
+		  }
+		  return result + '.docx';
+		}
+		
+		// 生成随机长度（6-16）的文件名
+		const randomFileName = generateRandomFileName(Math.floor(Math.random() * 11) + 6);
+		console.log(`Generated random file name: ${randomFileName}`);
+		
 		// 试算用户消息长度
 		if (encodeURIComponent(JSON.stringify(userMessage)).length + encodeURIComponent(userQuery).length > 32000) {
 			console.log("Using file upload mode");
-
-			// 生成随机文件名的函数
-			function generateRandomFileName(length) {
-			  const validChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
-			  let result = '';
-			  for (let i = 0; i < length; i++) {
-				result += validChars.charAt(Math.floor(Math.random() * validChars.length));
-			  }
-			  return result + '.docx';
-			}
-			
-			// 生成随机长度（6-16）的文件名
-			const randomFileName = generateRandomFileName(Math.floor(Math.random() * 11) + 6);
-			console.log(`Generated random file name: ${randomFileName}`);
 			
 			// 应用格式化逻辑
 			const formattedMessages = formatMessages(messages);
@@ -456,7 +456,7 @@ class YouProvider {
 		req_param.append("domain", "youchat");
 		req_param.append("mkt", "ja-JP");
 		if (uploadedFile)
-			req_param.append("userFiles", JSON.stringify([{ user_filename: "messages.docx", filename: uploadedFile.filename, size: messageBuffer.length }]));
+			req_param.append("userFiles", JSON.stringify([{ user_filename: randomFileName, filename: uploadedFile.filename, size: messageBuffer.length }]));
 		req_param.append("chat", JSON.stringify(userMessage));
 		var url = "https://you.com/api/streamingSearch?" + req_param.toString();
 		console.log("正在发送请求");
