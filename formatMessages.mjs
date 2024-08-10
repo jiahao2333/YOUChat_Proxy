@@ -27,7 +27,7 @@ export function formatMessages(messages) {
                     userRoundCounter = initialRound - 1;
                     assistantRoundCounter = initialRound;
                     lastAssistantRound = initialRound;
-                    descriptionPointCounter = Math.ceil(initialRound / 2);
+                    descriptionPointCounter = 1;
                     break;
                 }
             }
@@ -56,10 +56,10 @@ export function formatMessages(messages) {
             let roundInfo = '';
             if (i + 1 < messages.length && messages[i + 1].role === 'assistant') {
                 const nextAssistantRound = userRoundCounter + 1;
-                roundInfo = `--------------------<历史第 user = 回合${userRoundCounter}|assistant = 回合${nextAssistantRound} 开始，标记描点:[${descriptionPointCounter}]>--------------------\n`;
+                roundInfo = `--------------------<历史第 user = 回合${userRoundCounter}|assistant = 回合${nextAssistantRound} 开始，标记锚点:[${descriptionPointCounter}]>--------------------\n`;
             } else {
                 isLatestRound = true;
-                roundInfo = `--------------------<最新user:(${userRoundCounter})回合|assistant:(${userRoundCounter + 1})回合开始，基于上回(${descriptionPointCounter - 1}(user${userRoundCounter - 1}|assistant${userRoundCounter}))中的历史描点内的\`assistant:\`发言末尾衔接，不得无视下方\`user:\`指引内容，根据多个记忆信息来保持思路清晰，不要出现失忆发言:>--------------------\n`;
+                roundInfo = `--------------------<最新user:(${userRoundCounter})回合|assistant:(${userRoundCounter + 1})回合开始，基于上回(${descriptionPointCounter - 1}(user${userRoundCounter - 1}|assistant${userRoundCounter}))中的历史锚点内的\`assistant:\`发言末尾衔接，不得无视下方\`user:\`指引内容，根据多个记忆信息来保持思路清晰，不要出现失忆发言:>--------------------\n`;
             }
             formattedMessages.push({
                 role: 'system',
@@ -78,7 +78,7 @@ export function formatMessages(messages) {
         if (message.content.includes('<CHAR_turn>') && !isLatestRound) {
             formattedMessages.push({
                 role: 'system',
-                content: `--------------------<历史描点[${descriptionPointCounter}]结束>--------------------`
+                content: `--------------------<历史锚点[${descriptionPointCounter}]结束>--------------------`
             });
         }
 
