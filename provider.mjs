@@ -438,7 +438,6 @@ class YouProvider {
 		req_param.append("queryTraceId", traceId);
 		req_param.append("use_personalization_extraction", "false");
 		req_param.append("domain", "youchat");
-		req_param.append("responseFilter", "WebPages,TimeZone,Computation,RelatedSearches");
 		req_param.append("mkt", "ja-JP");
 		if (uploadedFile)
 			req_param.append("userFiles", JSON.stringify([{ user_filename: "messages.docx", filename: uploadedFile.filename, size: messageBuffer.length }]));
@@ -447,6 +446,7 @@ class YouProvider {
 		console.log("正在发送请求");
 		emitter.emit("start", traceId);
 		try {
+			await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, { waitUntil: "domcontentloaded" });
 			await page.evaluate(
 				async (url, traceId) => {
 					var evtSource = new EventSource(url);
