@@ -18,14 +18,14 @@ class YouProvider {
         this.config = config;
         this.sessions = {};
         // 可以是 'chrome', 'edge', 或 'auto'
-        this.preferredBrowser = 'auto';
+        this.preferredBrowser = 'edge';
         this.isCustomModeEnabled = process.env.USE_CUSTOM_MODE === "true";
         this.isRotationEnabled = process.env.ENABLE_MODE_ROTATION === "true";
         this.currentMode = "default";
         this.switchCounter = 0;
         this.requestsInCurrentMode = 0;
         this.switchThreshold = this.getRandomSwitchThreshold();
-	this.lastDefaultThreshold = 0; // 记录上一次default模式的阈值
+	    this.lastDefaultThreshold = 0; // 记录上一次default模式的阈值
     }
 
     getRandomSwitchThreshold() {
@@ -57,26 +57,68 @@ class YouProvider {
         // extract essential jwt session and token from cookie
         for (let index = 0; index < config.sessions.length; index++) {
             let session = config.sessions[index];
-            var { jwtSession, jwtToken } = extractCookie(session.cookie);
+            var { jwtSession, jwtToken, ds, dsr, youproSubscription, youSubscription, aiModel } = extractCookie(session.cookie);
+
             if (jwtSession && jwtToken) {
+                // 旧版cookie处理
                 try {
                     let jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
                     this.sessions[jwt.user.name] = {
                         configIndex: index,
                         jwtSession,
                         jwtToken,
+                        youproSubscription,
+                        youSubscription,
+                        aiModel,
                         valid: false,
                     };
-                    console.log(`已添加 #${index} ${jwt.user.name}`);
+                    console.log(`已添加 #${index} ${jwt.user.name} (旧版cookie)`);
                 } catch (e) {
-                    console.error(`解析第${index}个cookie失败`);
+                    console.error(`解析第${index}个旧版cookie失败: ${e.message}`);
+                }
+            } else if (ds) {
+                // 新版cookie处理，只要有DS就处理
+                try {
+                    let jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
+                    this.sessions[jwt.email] = {
+                        configIndex: index,
+                        ds,
+                        dsr, // 即使dsr为null也会被添加
+                        youproSubscription,
+                        youSubscription,
+                        aiModel,
+                        valid: false,
+                    };
+                    console.log(`已添加 #${index} ${jwt.email} (新版cookie)`);
+                    if (!dsr) {
+                        console.warn(`警告: 第${index}个cookie缺少DSR字段。程序继续执行。`);
+                    }
+                } catch (e) {
+                    console.error(`解析第${index}个新版cookie失败: ${e.message}`);
                 }
             } else {
-                console.error(`第${index}个cookie中缺少jwtSession或jwtToken，请重新获取`);
+                // 无效cookie处理
+                console.error(`第${index}个cookie无效，请重新获取。`);
+                if (jwtSession || jwtToken) {
+                    console.error(`检测到部分旧版cookie字段，但不完整。`);
+                    if (!jwtSession) console.error(`缺少: stytch_session`);
+                    if (!jwtToken) console.error(`缺少: stytch_session_jwt`);
+                } else if (ds) {
+                    console.error(`检测到新版cookie的DS字段，但缺少其他必要字段。`);
+                } else {
+                    console.error(`未检测到任何有效的cookie字段。`);
+                }
+                console.error(`提示: 请确保登录You.com并成功获取完整的cookie。`);
+                continue; // 跳过无效的cookie，继续下一个
+            }
+
+            if (youproSubscription === "false" || youSubscription === "freemium") {
+                console.warn(`警告: 第${index}个cookie可能没有有效的订阅。请检查You是否有有效的Pro订阅。`);
             }
         }
         console.log(`已添加 ${Object.keys(this.sessions).length} 个 cookie，开始验证有效性（是否有订阅）`);
-
+		
+		
         for (var username of Object.keys(this.sessions)) {
             var session = this.sessions[username];
             createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", username));
@@ -90,7 +132,15 @@ class YouProvider {
             })
                 .then(async (response) => {
                     const { page, browser, setTarget } = response;
-                    await page.setCookie(...getSessionCookie(session.jwtSession, session.jwtToken));
+                    await page.setCookie(...getSessionCookie(
+                        session.jwtSession,
+                        session.jwtToken,
+                        session.ds,
+                        session.dsr,
+                        session.youproSubscription,
+                        session.youSubscription,
+                        session.aiModel
+                    ));
 
                     page.goto("https://you.com", { timeout: 60000 });
                     await sleep(5000); // 等待加载完毕
@@ -267,6 +317,8 @@ class YouProvider {
 				console.log('页面加载超时，继续执行');
 			});
 		}
+
+		await page.goto("https://you.com/?chatMode=default", { waitUntil: "domcontentloaded" });
 		
 		// 计算用户消息长度
 		let userMessage = [{ question: "", answer: "" }];
@@ -341,7 +393,7 @@ class YouProvider {
 		} else {
 			console.log("Custom mode is disabled, using default mode.");
 		}
-
+		
 		// 生成随机文件名
 		function generateRandomFileName(length) {
 		  const validChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
@@ -355,7 +407,7 @@ class YouProvider {
 		// 生成随机长度（6-16）的文件名
 		const randomFileName = generateRandomFileName(Math.floor(Math.random() * 11) + 6);
 		console.log(`Generated random file name: ${randomFileName}`);
-		
+
 		// 试算用户消息长度
 		if (encodeURIComponent(JSON.stringify(userMessage)).length + encodeURIComponent(userQuery).length > 32000) {
 			console.log("Using file upload mode");
