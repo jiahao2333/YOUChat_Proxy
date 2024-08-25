@@ -38,42 +38,46 @@ const modelMappping = {
 };
 
 // import config.mjs
+let config;
 try {
-	var { config } = await import("./config.mjs");
+    const configModule = await import("./config.mjs");
+    config = configModule.config;
 } catch (e) {
-	console.error(e);
-	console.error("config.mjs 不存在或者有错误，请检查");
-	process.exit(1);
+    console.error(e);
+    console.error("config.mjs 不存在或者有错误，请检查");
+    process.exit(1);
 }
-var provider = new YouProvider(config);
+
+const provider = new YouProvider(config);
 await provider.init(config);
 
 // handle preflight request
 app.use((req, res, next) => {
-	if (req.method === "OPTIONS") {
-		res.setHeader("Access-Control-Allow-Origin", "*");
-		res.setHeader("Access-Control-Allow-Methods", "*");
-		res.setHeader("Access-Control-Allow-Headers", "*");
-		res.setHeader("Access-Control-Max-Age", "86400");
-		res.status(200).end();
-	} else {
-		next();
-	}
+    if (req.method === "OPTIONS") {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "*");
+        res.setHeader("Access-Control-Allow-Headers", "*");
+        res.setHeader("Access-Control-Max-Age", "86400");
+        res.status(200).end();
+    } else {
+        next();
+    }
 });
+
 // openai format model request
 app.get("/v1/models", OpenAIApiKeyAuth, (req, res) => {
-	res.setHeader("Content-Type", "application/json");
-	res.setHeader("Access-Control-Allow-Origin", "*");
-	let models = availableModels.map((model, index) => {
-		return {
-			id: model,
-			object: "model",
-			created: 1700000000,
-			owned_by: "closeai",
-			name: model,
-		};
-	});
-	res.json({ object: "list", data: models });
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    const models = availableModels.map((model) => {
+        return {
+            id: model,
+            object: "model",
+            created: 1700000000,
+            owned_by: "closeai",
+            name: model,
+        };
+    });
+    res.json({ object: "list", data: models });
 });
 // handle openai format model request
 app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
@@ -92,7 +96,7 @@ app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
 
 		console.log("message length:" + jsonBody.messages.length);
 		// decide which session to use randomly
-		var randomSession = Object.keys(provider.sessions)[Math.floor(Math.random() * Object.keys(provider.sessions).length)];
+		let randomSession = Object.keys(provider.sessions)[Math.floor(Math.random() * Object.keys(provider.sessions).length)];
 		console.log("Using session " + randomSession);
 		// call provider to get completion
 
@@ -109,11 +113,13 @@ app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
 		// call provider to get completion
 		await provider
 			.getCompletion(
-				randomSession,
-				jsonBody.messages,
-				jsonBody.stream ? true : false,
-				jsonBody.model,
-				process.env.USE_CUSTOM_MODE == "true" ? true : false
+				{
+					username: randomSession,
+					messages: jsonBody.messages,
+					stream: !!jsonBody.stream,
+					proxyModel: jsonBody.model,
+					useCustomMode: process.env.USE_CUSTOM_MODE === "true"
+				}
 			)
 			.then(({ completion, cancel }) => {
 				completion.on("start", (id) => {
@@ -258,7 +264,6 @@ app.post("/v1/chat/completions", OpenAIApiKeyAuth, (req, res) => {
 					);
 					res.end();
 				}
-				return;
 			});
 	});
 });
@@ -283,22 +288,29 @@ app.post("/v1/messages", AnthropicApiKeyAuth, (req, res) => {
 		console.log("message length:" + jsonBody.messages.length);
 
 		// decide which session to use randomly
-		var randomSession = Object.keys(provider.sessions)[Math.floor(Math.random() * Object.keys(provider.sessions).length)];
+		let randomSession = Object.keys(provider.sessions)[Math.floor(Math.random() * Object.keys(provider.sessions).length)];
 		console.log("Using session " + randomSession);
 
 		// decide which model to use
+		let proxyModel;
 		if (process.env.AI_MODEL) {
-			var proxyModel = process.env.AI_MODEL;
+			proxyModel = process.env.AI_MODEL;
 		} else if (jsonBody.model && modelMappping[jsonBody.model]) {
-			var proxyModel = modelMappping[jsonBody.model];
+			proxyModel = modelMappping[jsonBody.model];
 		} else {
-			var proxyModel = "claude_3_opus";
+			proxyModel = "claude_3_opus";
 		}
-		console.log("Using model " + proxyModel);
+		console.log(`Using model ${proxyModel}`);
 
 		// call provider to get completion
 		await provider
-			.getCompletion(randomSession, jsonBody.messages, jsonBody.stream ? true : false, proxyModel, process.env.USE_CUSTOM_MODE == "true" ? true : false)
+			.getCompletion({
+				username: randomSession,
+				messages: jsonBody.messages,
+				stream: !!jsonBody.stream,
+				proxyModel: proxyModel,
+				useCustomMode: process.env.USE_CUSTOM_MODE === "true"
+			})
 			.then(({ completion, cancel }) => {
 				completion.on("start", (id) => {
 					if (jsonBody.stream) {
@@ -421,7 +433,6 @@ app.post("/v1/messages", AnthropicApiKeyAuth, (req, res) => {
 					);
 					res.end();
 				}
-				return;
 			});
 	});
 });
@@ -433,72 +444,72 @@ app.use((req, res, next) => {
 	console.log("收到了错误路径的请求，请检查您使用的API端点是否正确。")
 });
 
-app.listen(port, async () => {
-	console.log(`YouChat proxy listening on port ${port}`);
-	if (!validApiKey) {
-		console.log(`Proxy is currently running with no authentication`);
-	}
-	console.log(`Custom mode: ${process.env.USE_CUSTOM_MODE == "true" ? "enabled" : "disabled"}`);
-	console.log(`Mode rotation: ${process.env.ENABLE_MODE_ROTATION === "true" ? "enabled" : "disabled"}`);
+const createLocaltunnel = async (port, subdomain) => {
+    const tunnelOptions = { port };
+    if (subdomain) {
+        tunnelOptions.subdomain = subdomain;
+    }
 
-    // 检查是否启用隧道
+    try {
+        const tunnel = await localtunnel(tunnelOptions);
+        console.log(`隧道已成功创建，可通过以下URL访问: ${tunnel.url}/v1`);
+        tunnel.on("close", () => console.log("已关闭隧道"));
+        return tunnel;
+    } catch (error) {
+        console.error("创建localtunnel隧道失败:", error);
+    }
+};
+
+const createNgrok = async (port, authToken, customDomain, subdomain) => {
+    const ngrokOptions = { addr: port, authtoken: authToken };
+
+    if (customDomain) {
+        ngrokOptions.hostname = customDomain;
+    } else if (subdomain) {
+        ngrokOptions.subdomain = subdomain;
+    }
+
+    const originalHttpProxy = process.env.HTTP_PROXY;
+    const originalHttpsProxy = process.env.HTTPS_PROXY;
+    delete process.env.HTTP_PROXY;
+    delete process.env.HTTPS_PROXY;
+
+    try {
+        const url = await ngrok.connect(ngrokOptions);
+        console.log(`隧道已成功创建，可通过以下URL访问: ${url}/v1`);
+        process.on('SIGTERM', async () => {
+            await ngrok.kill();
+            console.log("已关闭隧道");
+        });
+        return url;
+    } catch (error) {
+        console.error("创建ngrok隧道失败:", error);
+    } finally {
+        if (originalHttpProxy) process.env.HTTP_PROXY = originalHttpProxy;
+        if (originalHttpsProxy) process.env.HTTPS_PROXY = originalHttpsProxy;
+    }
+};
+
+const createTunnel = async (tunnelType, port) => {
+    console.log(`创建${tunnelType}隧道中...`);
+    if (tunnelType === "localtunnel") {
+        return createLocaltunnel(port, process.env.SUBDOMAIN);
+    } else if (tunnelType === "ngrok") {
+        return createNgrok(port, process.env.NGROK_AUTH_TOKEN, process.env.NGROK_CUSTOM_DOMAIN, process.env.SUBDOMAIN);
+    }
+};
+
+app.listen(port, async () => {
+    console.log(`YouChat proxy listening on port ${port}`);
+    if (!validApiKey) {
+        console.log(`Proxy is currently running with no authentication`);
+    }
+    console.log(`Custom mode: ${process.env.USE_CUSTOM_MODE === "true" ? "enabled" : "disabled"}`);
+    console.log(`Mode rotation: ${process.env.ENABLE_MODE_ROTATION === "true" ? "enabled" : "disabled"}`);
+
     if (process.env.ENABLE_TUNNEL === "true") {
         const tunnelType = process.env.TUNNEL_TYPE || "localtunnel";
-        console.log(`创建${tunnelType}隧道中...`);
-
-        if (tunnelType === "localtunnel") {
-            // localtunnel
-            const tunnelOptions = { port: port };
-            if (process.env.SUBDOMAIN) {
-                tunnelOptions.subdomain = process.env.SUBDOMAIN;
-            }
-
-            try {
-                const tunnel = await localtunnel(tunnelOptions);
-                console.log(`隧道已成功创建，可通过以下URL访问: ${tunnel.url}/v1`);
-
-                tunnel.on("close", () => {
-                    console.log("已关闭隧道");
-                });
-            } catch (error) {
-                console.error("创建隧道失败:", error);
-            }
-        } else if (tunnelType === "ngrok") {
-            // ngrok
-            try {
-                const ngrokOptions = {
-                    addr: port,
-                    authtoken: process.env.NGROK_AUTH_TOKEN,
-                };
-
-                // 添加自定义域名
-                if (process.env.NGROK_CUSTOM_DOMAIN) {
-                    ngrokOptions.hostname = process.env.NGROK_CUSTOM_DOMAIN;
-                } else if (process.env.SUBDOMAIN) {
-                    ngrokOptions.subdomain = process.env.SUBDOMAIN;
-                }
-		
-                // 暂时清除代理
-                const originalHttpProxy = process.env.HTTP_PROXY;
-                const originalHttpsProxy = process.env.HTTPS_PROXY;
-                delete process.env.HTTP_PROXY;
-                delete process.env.HTTPS_PROXY;
-		
-                const url = await ngrok.connect(ngrokOptions);
-                console.log(`隧道已成功创建，可通过以下URL访问: ${url}/v1`);
-		
-                // 恢复代理
-                if (originalHttpProxy) process.env.HTTP_PROXY = originalHttpProxy;
-                if (originalHttpsProxy) process.env.HTTPS_PROXY = originalHttpsProxy;
-		
-                process.on('SIGTERM', async () => {
-                    await ngrok.kill();
-                    console.log("已关闭隧道");
-                });
-            } catch (error) {
-                console.error("创建隧道失败:", error);
-            }
-        }
+        await createTunnel(tunnelType, port);
     }
 });
 
