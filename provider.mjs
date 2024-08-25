@@ -1,14 +1,14 @@
-import { EventEmitter } from "events";
-import { connect } from "puppeteer-real-browser";
-import { v4 as uuidv4 } from "uuid";
+import {EventEmitter} from "events";
+import {connect} from "puppeteer-real-browser";
+import {v4 as uuidv4} from "uuid";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
-import { createDirectoryIfNotExists, sleep, extractCookie, getSessionCookie, createDocx } from "./utils.mjs";
-import { execSync } from 'child_process';
+import {fileURLToPath} from "url";
+import {createDirectoryIfNotExists, createDocx, extractCookie, getSessionCookie, sleep} from "./utils.mjs";
+import {execSync} from 'child_process';
 import os from 'os';
 import './proxyAgent.mjs';
-import { formatMessages } from './formatMessages.mjs';
+import {formatMessages} from './formatMessages.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,7 +25,7 @@ class YouProvider {
         this.switchCounter = 0;
         this.requestsInCurrentMode = 0;
         this.switchThreshold = this.getRandomSwitchThreshold();
-	    this.lastDefaultThreshold = 0; // 记录上一次default模式的阈值
+        this.lastDefaultThreshold = 0; // 记录上一次default模式的阈值
     }
 
     getRandomSwitchThreshold() {
@@ -54,52 +54,66 @@ class YouProvider {
         // 检测Chrome和Edge浏览器
         const browserPath = this.detectBrowser();
 
-        // extract essential jwt session and token from cookie
-        for (let index = 0; index < config.sessions.length; index++) {
-			let session = config.sessions[index], {jwtSession, jwtToken, ds, dsr} = extractCookie(session.cookie);
-			if (jwtSession && jwtToken) {
-                // 旧版cookie处理
-                try {
-                    let jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
-                    this.sessions[jwt.user.name] = {
-                        configIndex: index,
-                        jwtSession,
-                        jwtToken,
-                        valid: false,
-                    };
-                    console.log(`已添加 #${index} ${jwt.user.name} (旧版cookie)`);
-                } catch (e) {
-                    console.error(`解析第${index}个旧版cookie失败: ${e.message}`);
-                }
-            } else if (ds) {
-                // 新版cookie处理
-                try {
-                    let jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
-                    this.sessions[jwt.email] = {
-                        configIndex: index,
-                        ds,
-                        dsr,
-                        valid: false,
-                    };
-                    console.log(`已添加 #${index} ${jwt.email} (新版cookie)`);
-                    if (!dsr) {
-                        console.warn(`警告: 第${index}个cookie缺少DSR字段。`);
+        this.sessions = {};
+        const timeout = 120000; // 120 秒超时
+
+        if (process.env.USE_MANUAL_LOGIN === "true") {
+            this.sessions['manual_login'] = {
+                configIndex: 0,
+                valid: false,
+            };
+            console.log("当前使用手动登录模式，跳过config.mjs文件中的 cookie 验证");
+        } else {
+            // 使用配置文件中的 cookie
+            for (let index = 0; index < config.sessions.length; index++) {
+                let session = config.sessions[index];
+                let {jwtSession, jwtToken, ds, dsr} = extractCookie(session.cookie);
+                if (jwtSession && jwtToken) {
+                    // 旧版cookie处理
+                    try {
+                        let jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
+                        this.sessions[jwt.user.name] = {
+                            configIndex: index,
+                            jwtSession,
+                            jwtToken,
+                            valid: false,
+                        };
+                        console.log(`已添加 #${index} ${jwt.user.name} (旧版cookie)`);
+                    } catch (e) {
+                        console.error(`解析第${index}个旧版cookie失败: ${e.message}`);
                     }
-                } catch (e) {
-                    console.error(`解析第${index}个新版cookie失败: ${e.message}`);
+                } else if (ds) {
+                    // 新版cookie处理
+                    try {
+                        let jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
+                        this.sessions[jwt.email] = {
+                            configIndex: index,
+                            ds,
+                            dsr,
+                            valid: false,
+                        };
+                        console.log(`已添加 #${index} ${jwt.email} (新版cookie)`);
+                        if (!dsr) {
+                            console.warn(`警告: 第${index}个cookie缺少DSR字段。`);
+                        }
+                    } catch (e) {
+                        console.error(`解析第${index}个新版cookie失败: ${e.message}`);
+                    }
+                } else {
+                    console.error(`第${index}个cookie无效，请重新获取。`);
+                    console.error(`未检测到有效的DS或stytch_session字段。`);
                 }
-            } else {
-                console.error(`第${index}个cookie无效，请重新获取。`);
-                console.error(`未检测到有效的DS或stytch_session字段。`);
             }
+            console.log(`已添加 ${Object.keys(this.sessions).length} 个 cookie，开始验证有效性`);
         }
-        console.log(`已添加 ${Object.keys(this.sessions).length} 个 cookie，开始验证有效性`);
 
         for (let username of Object.keys(this.sessions)) {
-			let session = this.sessions[username];
-			createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", username));
+            let session = this.sessions[username];
+            createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", username));
+            const isWindows = os.platform() === 'win32';
+
             await connect({
-                headless: "auto",
+                headless: isWindows ? false : 'auto',
                 turnstile: true,
                 customConfig: {
                     userDataDir: path.join(__dirname, "browser_profiles", username),
@@ -107,27 +121,53 @@ class YouProvider {
                 },
             })
                 .then(async (response) => {
-                    const { page, browser, setTarget } = response;
-                    await page.setCookie(...getSessionCookie(
-                        session.jwtSession,
-                        session.jwtToken,
-                        session.ds,
-                        session.dsr
-                    ));
+                    const { page, browser } = response;
+                    if (process.env.USE_MANUAL_LOGIN === "true") {
+                        console.log(`正在为 session #${session.configIndex} 进行手动登录...`);
+                        await page.goto("https://you.com", { timeout: timeout });
+                        // 等待页面加载完毕
+                        await sleep(5000);
+                        console.log(`请在打开的浏览器窗口中手动登录 You.com (session #${session.configIndex})`);
+                        await this.waitForManualLogin(page);
+                        const cookies = await page.cookies();
+                        const sessionCookie = this.extractSessionCookie(cookies);
+                        if (sessionCookie) {
+                            this.sessions[sessionCookie.email] = {
+                                ...session,
+                                ...sessionCookie,
+                            };
+                            delete this.sessions[username];
+                            username = sessionCookie.email;
+                            session = this.sessions[username];
+                            console.log(`成功获取 ${sessionCookie.email} 登录的 cookie`);
+                        } else {
+                            console.error(`未能获取到 session #${session.configIndex} 有效登录的 cookie`);
+                            await browser.close();
+                            return;
+                        }
+                    } else {
+                        await page.setCookie(...getSessionCookie(
+                            session.jwtSession,
+                            session.jwtToken,
+                            session.ds,
+                            session.dsr
+                        ));
+                        await page.goto("https://you.com", { timeout: timeout });
+                    }
 
-                    page.goto("https://you.com", { timeout: 60000 });
                     await sleep(5000); // 等待加载完毕
+
                     // 如果遇到盾了就多等一段时间
-					let pageContent = await page.content();
+                    let pageContent = await page.content();
                     if (pageContent.indexOf("https://challenges.cloudflare.com") > -1) {
-                        console.log(`请在30秒内完成人机验证`);
-                        page.evaluate(() => {
+                        console.log(`请在30秒内完成人机验证 (${username})`);
+                        await page.evaluate(() => {
                             alert("请在30秒内完成人机验证");
                         });
                         await sleep(30000);
                     }
 
-                    // get page content and try parse JSON
+                    // 验证 cookie 有效性
                     try {
                         let content = await page.evaluate(() => {
                             return fetch("https://you.com/api/user/getYouProState").then((res) => res.text());
@@ -150,406 +190,447 @@ class YouProvider {
                     }
                 })
                 .catch((e) => {
-                    console.error(`初始化浏览器失败`);
+                    console.error(`初始化浏览器失败 (${username})`);
                     console.error(e);
                 });
         }
         console.log(`验证完毕，有效cookie数量 ${Object.keys(this.sessions).filter((username) => this.sessions[username].valid).length}`);
     }
 
-	detectBrowser() {
-		const platform = os.platform();
-		let browsers = {
-			'chrome': null,
-			'edge': null
-		};
+    async waitForManualLogin(page) {
+        return new Promise((resolve) => {
+            const checkLoginStatus = async () => {
+                const isLoggedIn = await page.evaluate(() => {
+                    return !!document.querySelector('button[aria-label="User menu"]');
+                });
+                if (isLoggedIn) {
+                    console.log("检测到登录成功");
+                    resolve();
+                } else {
+                    setTimeout(checkLoginStatus, 1000);
+                }
+            };
 
-		if (platform === 'win32') {
-			browsers.chrome = this.findWindowsBrowser('Chrome');
-			browsers.edge = this.findWindowsBrowser('Edge');
-		} else if (platform === 'darwin') {
-			browsers.chrome = this.findMacOSBrowser('Google Chrome');
-			browsers.edge = this.findMacOSBrowser('Microsoft Edge');
-		} else if (platform === 'linux') {
-			browsers.chrome = this.findLinuxBrowser('google-chrome');
-			browsers.edge = this.findLinuxBrowser('microsoft-edge');
-		}
+            page.on('request', request => {
+                if (request.url().includes('https://you.com/api/instrumentation')) {
+                    resolve();
+                }
+            });
 
-		const preferredBrowser = this.preferredBrowser === 'auto' || this.preferredBrowser === undefined
-			? Object.keys(browsers).find(browser => browsers[browser])
-			: this.preferredBrowser;
+            checkLoginStatus();
+        });
+    }
 
-		if (browsers[preferredBrowser]) {
-			console.log(`使用${preferredBrowser === 'chrome' ? 'Chrome' : 'Edge'}浏览器`);
-			return browsers[preferredBrowser];
-		}
+    extractSessionCookie(cookies) {
+        const ds = cookies.find(c => c.name === 'DS')?.value;
+        const dsr = cookies.find(c => c.name === 'DSR')?.value;
+        if (ds) {
+            const jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
+            return {ds, dsr, email: jwt.email};
+        }
+        return null;
+    }
 
-		console.error('未找到Chrome或Edge浏览器，请确保已安装其中之一');
-		process.exit(1);
-	}
+    detectBrowser() {
+        const platform = os.platform();
+        let browsers = {
+            'chrome': null,
+            'edge': null
+        };
 
-	findWindowsBrowser(browserName) {
-		const regKeys = {
-			'Chrome': ['chrome.exe', 'Google\\Chrome'],
-			'Edge': ['msedge.exe', 'Microsoft\\Edge']
-		};
-		const [exeName, folderName] = regKeys[browserName];
+        if (platform === 'win32') {
+            browsers.chrome = this.findWindowsBrowser('Chrome');
+            browsers.edge = this.findWindowsBrowser('Edge');
+        } else if (platform === 'darwin') {
+            browsers.chrome = this.findMacOSBrowser('Google Chrome');
+            browsers.edge = this.findMacOSBrowser('Microsoft Edge');
+        } else if (platform === 'linux') {
+            browsers.chrome = this.findLinuxBrowser('google-chrome');
+            browsers.edge = this.findLinuxBrowser('microsoft-edge');
+        }
 
-		const regQuery = (key) => {
-			try {
-				return execSync(`reg query "${key}" /ve`).toString().trim().split('\r\n').pop().split('    ').pop();
-			} catch (error) {
-				return null;
-			}
-		};
+        const preferredBrowser = this.preferredBrowser === 'auto' || this.preferredBrowser === undefined
+            ? Object.keys(browsers).find(browser => browsers[browser])
+            : this.preferredBrowser;
 
-		let browserPath = regQuery(`HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`) ||
-						  regQuery(`HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`);
+        if (browsers[preferredBrowser]) {
+            console.log(`使用${preferredBrowser === 'chrome' ? 'Chrome' : 'Edge'}浏览器`);
+            return browsers[preferredBrowser];
+        }
 
-		if (browserPath && fs.existsSync(browserPath)) {
-			return browserPath;
-		}
+        console.error('未找到Chrome或Edge浏览器，请确保已安装其中之一');
+        process.exit(1);
+    }
 
-		const commonPaths = [
-			`C:\\Program Files\\${browserName}\\Application\\${exeName}`,
-			`C:\\Program Files (x86)\\${browserName}\\Application\\${exeName}`,
-			`${process.env.LOCALAPPDATA}\\${browserName}\\Application\\${exeName}`,
-			`${process.env.USERPROFILE}\\AppData\\Local\\${browserName}\\Application\\${exeName}`,
-		];
+    findWindowsBrowser(browserName) {
+        const regKeys = {
+            'Chrome': ['chrome.exe', 'Google\\Chrome'],
+            'Edge': ['msedge.exe', 'Microsoft\\Edge']
+        };
+        const [exeName, folderName] = regKeys[browserName];
 
-		const foundPath = commonPaths.find(path => fs.existsSync(path));
-		if (foundPath) {
-			return foundPath;
-		}
+        const regQuery = (key) => {
+            try {
+                return execSync(`reg query "${key}" /ve`).toString().trim().split('\r\n').pop().split('    ').pop();
+            } catch (error) {
+                return null;
+            }
+        };
 
-		const userAppDataPath = process.env.LOCALAPPDATA || `${process.env.USERPROFILE}\\AppData\\Local`;
-		const appDataPath = path.join(userAppDataPath, folderName, 'Application');
+        let browserPath = regQuery(`HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`) ||
+            regQuery(`HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`);
 
-		if (fs.existsSync(appDataPath)) {
-			const files = fs.readdirSync(appDataPath);
-			const exePath = files.find(file => file.toLowerCase() === exeName.toLowerCase());
-			if (exePath) {
-				return path.join(appDataPath, exePath);
-			}
-		}
+        if (browserPath && fs.existsSync(browserPath)) {
+            return browserPath;
+        }
 
-		return null;
-	}
+        const commonPaths = [
+            `C:\\Program Files\\${browserName}\\Application\\${exeName}`,
+            `C:\\Program Files (x86)\\${browserName}\\Application\\${exeName}`,
+            `${process.env.LOCALAPPDATA}\\${browserName}\\Application\\${exeName}`,
+            `${process.env.USERPROFILE}\\AppData\\Local\\${browserName}\\Application\\${exeName}`,
+        ];
 
-	findMacOSBrowser(browserName) {
-		const paths = [
-			`/Applications/${browserName}.app/Contents/MacOS/${browserName}`,
-			`${os.homedir()}/Applications/${browserName}.app/Contents/MacOS/${browserName}`,
-		];
+        const foundPath = commonPaths.find(path => fs.existsSync(path));
+        if (foundPath) {
+            return foundPath;
+        }
 
-		for (const path of paths) {
-			if (fs.existsSync(path)) {
-				return path;
-			}
-		}
+        const userAppDataPath = process.env.LOCALAPPDATA || `${process.env.USERPROFILE}\\AppData\\Local`;
+        const appDataPath = path.join(userAppDataPath, folderName, 'Application');
 
-		return null;
-	}
+        if (fs.existsSync(appDataPath)) {
+            const files = fs.readdirSync(appDataPath);
+            const exePath = files.find(file => file.toLowerCase() === exeName.toLowerCase());
+            if (exePath) {
+                return path.join(appDataPath, exePath);
+            }
+        }
 
-	findLinuxBrowser(browserName) {
-		try {
-			return execSync(`which ${browserName}`).toString().trim();
-		} catch (error) {
-			return null;
-		}
-	}
+        return null;
+    }
 
-	async getCompletion({username, messages, stream = false, proxyModel, useCustomMode = false}) {
-		const session = this.sessions[username];
-		if (!session || !session.valid) {
-			throw new Error(`用户 ${username} 的会话无效`);
-		}
+    findMacOSBrowser(browserName) {
+        const paths = [
+            `/Applications/${browserName}.app/Contents/MacOS/${browserName}`,
+            `${os.homedir()}/Applications/${browserName}.app/Contents/MacOS/${browserName}`,
+        ];
 
-		const { page, browser } = session;
-		const emitter = new EventEmitter();
-	        // 处理模式轮换逻辑
-	        if (this.isCustomModeEnabled && this.isRotationEnabled) {
-	            this.switchCounter++;
-	            this.requestsInCurrentMode++;
-	            console.log(`当前模式: ${this.currentMode}, 本模式下的请求次数: ${this.requestsInCurrentMode}, 距离下次切换还有 ${this.switchThreshold - this.switchCounter} 次请求`);
+        for (const path of paths) {
+            if (fs.existsSync(path)) {
+                return path;
+            }
+        }
 
-	            if (this.switchCounter >= this.switchThreshold) {
-	                this.switchMode();
-	            }
-	        }
+        return null;
+    }
 
-	        // 根据轮换状态决定是否使用自定义模式
-	        const effectiveUseCustomMode = this.isRotationEnabled ? (this.currentMode === "custom") : useCustomMode;
+    findLinuxBrowser(browserName) {
+        try {
+            return execSync(`which ${browserName}`).toString().trim();
+        } catch (error) {
+            return null;
+        }
+    }
 
-		// 检查页面是否已经加载完成
-		const isLoaded = await page.evaluate(() => {
-			return document.readyState === 'complete' || document.readyState === 'interactive';
-		});
+    async getCompletion({username, messages, stream = false, proxyModel, useCustomMode = false}) {
+        const session = this.sessions[username];
+        if (!session || !session.valid) {
+            throw new Error(`用户 ${username} 的会话无效`);
+        }
 
-		if (!isLoaded) {
-			console.log('页面尚未加载完成，等待加载...');
-			await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {
-				console.log('页面加载超时，继续执行');
-			});
-		}
+        const {page, browser} = session;
+        const emitter = new EventEmitter();
+        // 处理模式轮换逻辑
+        if (this.isCustomModeEnabled && this.isRotationEnabled) {
+            this.switchCounter++;
+            this.requestsInCurrentMode++;
+            console.log(`当前模式: ${this.currentMode}, 本模式下的请求次数: ${this.requestsInCurrentMode}, 距离下次切换还有 ${this.switchThreshold - this.switchCounter} 次请求`);
 
-		await page.goto("https://you.com/?chatMode=default", { waitUntil: "domcontentloaded" });
+            if (this.switchCounter >= this.switchThreshold) {
+                this.switchMode();
+            }
+        }
 
-		// 计算用户消息长度
-		let userMessage = [{ question: "", answer: "" }];
-		let userQuery = "";
-		let lastUpdate = true;
+        // 根据轮换状态决定是否使用自定义模式
+        const effectiveUseCustomMode = this.isRotationEnabled ? (this.currentMode === "custom") : useCustomMode;
 
-		messages.forEach((msg) => {
-			if (msg.role == "system" || msg.role == "user") {
-				if (lastUpdate) {
-					userMessage[userMessage.length - 1].question += msg.content + "\n";
-				} else if (userMessage[userMessage.length - 1].question == "") {
-					userMessage[userMessage.length - 1].question += msg.content + "\n";
-				} else {
-					userMessage.push({ question: msg.content + "\n", answer: "" });
-				}
-				lastUpdate = true;
-			} else if (msg.role == "assistant") {
-				if (!lastUpdate) {
-					userMessage[userMessage.length - 1].answer += msg.content + "\n";
-				} else if (userMessage[userMessage.length - 1].answer == "") {
-					userMessage[userMessage.length - 1].answer += msg.content + "\n";
-				} else {
-					userMessage.push({ question: "", answer: msg.content + "\n" });
-				}
-				lastUpdate = false;
-			}
-		});
-		userQuery = userMessage[userMessage.length - 1].question;
+        // 检查页面是否已经加载完成
+        const isLoaded = await page.evaluate(() => {
+            return document.readyState === 'complete' || document.readyState === 'interactive';
+        });
 
-		// 检查该session是否已经创建对应模型的对应user chat mode
-		let userChatModeId = "custom";
-		if (effectiveUseCustomMode) {
-			if (!this.config.sessions[session.configIndex].user_chat_mode_id) {
-				this.config.sessions[session.configIndex].user_chat_mode_id = {};
-			}
-			if (!this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel]) {
-				// 创建新的user chat mode
-				let userChatMode = await page.evaluate(
-					async (proxyModel, proxyModelName) => {
-						return fetch("https://you.com/api/custom_assistants/assistants", {
-							method: "POST",
-							body: JSON.stringify({
-								aiModel: proxyModel,
-								hasLiveWebAccess: false,
-								hasPersonalization: false,
-								hideInstructions: true,
-								includeFollowUps: false,
-								instructions: "Please review the attached prompt",
-								instructionsSummary:"",
-								isUserOwned: true,
-								name: proxyModelName,
-								visibility: "private",
-							}),
-							headers: {
-								"Content-Type": "application/json",
-							},
-						}).then((res) => res.json());
-					},
-					proxyModel,
-					uuidv4().substring(0, 4)
-				);
-				if(userChatMode.chat_mode_id){
-					this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel] = userChatMode.chat_mode_id;
-					// 写回config
-					fs.writeFileSync("./config.mjs", "export const config = " + JSON.stringify(this.config, null, 4));
-				}else{
-					if(userChatMode.error) console.log(userChatMode.error)
-					console.log("Failed to create user chat mode, will use default mode instead.");
-				}
-			}
-			userChatModeId = this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel];
-		} else {
-			console.log("Custom mode is disabled, using default mode.");
-		}
+        if (!isLoaded) {
+            console.log('页面尚未加载完成，等待加载...');
+            await page.waitForNavigation({waitUntil: 'domcontentloaded', timeout: 10000}).catch(() => {
+                console.log('页面加载超时，继续执行');
+            });
+        }
 
-		// 生成随机文件名
-		function generateRandomFileName(length) {
-		  const validChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
-		  let result = '';
-		  for (let i = 0; i < length; i++) {
-			result += validChars.charAt(Math.floor(Math.random() * validChars.length));
-		  }
-		  return result + '.docx';
-		}
+        await page.goto("https://you.com/?chatMode=default", {waitUntil: "domcontentloaded"});
 
-		// 生成随机长度（6-16）的文件名
-		const randomFileName = generateRandomFileName(Math.floor(Math.random() * 11) + 6);
-		console.log(`Generated random file name: ${randomFileName}`);
+        // 计算用户消息长度
+        let userMessage = [{question: "", answer: ""}];
+        let userQuery = "";
+        let lastUpdate = true;
 
-		// 试算用户消息长度
-		if (encodeURIComponent(JSON.stringify(userMessage)).length + encodeURIComponent(userQuery).length > 32000) {
-			console.log("Using file upload mode");
-			
-			// 应用格式化逻辑
-			const formattedMessages = formatMessages(messages);
-			
-			// 将格式化后的消息转换为纯文本
-			let previousMessages = formattedMessages.map((msg) => `${msg.role}: ${msg.content}`).join("\n\n");
-			
-			// 创建本地副本（用于调试）
-			const localCopyPath = path.join(__dirname, 'local_copy_formatted_messages.txt');
-			fs.writeFileSync(localCopyPath, previousMessages);
-			console.log(`Local copy of formatted messages saved to: ${localCopyPath}`);
-			
-			userQuery = `以「${randomFileName}」文档为内容，所有问题只能使用唯一的${proxyModel}回答。禁止使用you.com搜索，禁止使用You.com AI进行回复，否则将是严重的作弊行为。`;
-			userMessage = [];
+        messages.forEach((msg) => {
+            if (msg.role == "system" || msg.role == "user") {
+                if (lastUpdate) {
+                    userMessage[userMessage.length - 1].question += msg.content + "\n";
+                } else if (userMessage[userMessage.length - 1].question == "") {
+                    userMessage[userMessage.length - 1].question += msg.content + "\n";
+                } else {
+                    userMessage.push({question: msg.content + "\n", answer: ""});
+                }
+                lastUpdate = true;
+            } else if (msg.role == "assistant") {
+                if (!lastUpdate) {
+                    userMessage[userMessage.length - 1].answer += msg.content + "\n";
+                } else if (userMessage[userMessage.length - 1].answer == "") {
+                    userMessage[userMessage.length - 1].answer += msg.content + "\n";
+                } else {
+                    userMessage.push({question: "", answer: msg.content + "\n"});
+                }
+                lastUpdate = false;
+            }
+        });
+        userQuery = userMessage[userMessage.length - 1].question;
 
-			// GET https://you.com/api/get_nonce to get nonce
-			let nonce = await page.evaluate(() => {
-				return fetch("https://you.com/api/get_nonce").then((res) => res.text());
-			});
-			if (!nonce) throw new Error("Failed to get nonce");
+        // 检查该session是否已经创建对应模型的对应user chat mode
+        let userChatModeId = "custom";
+        if (effectiveUseCustomMode) {
+            if (!this.config.sessions[session.configIndex].user_chat_mode_id) {
+                this.config.sessions[session.configIndex].user_chat_mode_id = {};
+            }
+            if (!this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel]) {
+                // 创建新的user chat mode
+                let userChatMode = await page.evaluate(
+                    async (proxyModel, proxyModelName) => {
+                        return fetch("https://you.com/api/custom_assistants/assistants", {
+                            method: "POST",
+                            body: JSON.stringify({
+                                aiModel: proxyModel,
+                                hasLiveWebAccess: false,
+                                hasPersonalization: false,
+                                hideInstructions: true,
+                                includeFollowUps: false,
+                                instructions: "Please review the attached prompt",
+                                instructionsSummary: "",
+                                isUserOwned: true,
+                                name: proxyModelName,
+                                visibility: "private",
+                            }),
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                        }).then((res) => res.json());
+                    },
+                    proxyModel,
+                    uuidv4().substring(0, 4)
+                );
+                if (userChatMode.chat_mode_id) {
+                    this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel] = userChatMode.chat_mode_id;
+                    // 写回config
+                    fs.writeFileSync("./config.mjs", "export const config = " + JSON.stringify(this.config, null, 4));
+                } else {
+                    if (userChatMode.error) console.log(userChatMode.error)
+                    console.log("Failed to create user chat mode, will use default mode instead.");
+                }
+            }
+            userChatModeId = this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel];
+        } else {
+            console.log("Custom mode is disabled, using default mode.");
+        }
 
-			// POST https://you.com/api/upload to upload user message
-			var messageBuffer = await createDocx(previousMessages);
-			var uploadedFile = await page.evaluate(
-				async (messageBuffer, nonce, randomFileName) => {
-					try {
-						var blob = new Blob([new Uint8Array(messageBuffer)], {
-							type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-						});
-						var form_data = new FormData();
-						form_data.append("file", blob, randomFileName);
-						let result = await fetch("https://you.com/api/upload", {
-							method: "POST",
-							headers: {
-								"X-Upload-Nonce": nonce,
-							},
-							body: form_data,
-						}).then((res) => res.json());
-						return result;
-					} catch (e) {
-						return null;
-					}
-				},
-				[...messageBuffer],
-				nonce,
-				randomFileName
-			);
-			if (!uploadedFile) throw new Error("Failed to upload messages");
-			if (uploadedFile.error) throw new Error(uploadedFile.error);
-		}
+        // 生成随机文件名
+        function generateRandomFileName(length) {
+            const validChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += validChars.charAt(Math.floor(Math.random() * validChars.length));
+            }
+            return result + '.docx';
+        }
 
-		let msgid = uuidv4();
-		let traceId = uuidv4();
+        // 生成随机长度（6-16）的文件名
+        const randomFileName = generateRandomFileName(Math.floor(Math.random() * 11) + 6);
+        console.log(`Generated random file name: ${randomFileName}`);
 
-		// expose function to receive youChatToken
-		var finalResponse = "";
-		page.exposeFunction("callback" + traceId, async (event, data) => {
-			switch (event) {
-				case "youChatToken":
-					data = JSON.parse(data);
-					process.stdout.write(data.youChatToken);
-					if (stream) {
-						emitter.emit("completion", traceId, data.youChatToken);
-					} else {
-						finalResponse += data.youChatToken;
-					}
-					break;
-				case "done":
-					console.log("请求结束");
-					if (stream) {
-						emitter.emit("end");
-					} else {
-						emitter.emit("completion", traceId, finalResponse);
-					}
-					break;
-				case "error":
-					throw new Error(data);
-			}
-		});
+        // 试算用户消息长度
+        if (encodeURIComponent(JSON.stringify(userMessage)).length + encodeURIComponent(userQuery).length > 32000) {
+            console.log("Using file upload mode");
 
-		// proxy response
-		var req_param = new URLSearchParams();
-		req_param.append("page", "1");
-		req_param.append("count", "10");
-		req_param.append("safeSearch", "Off");
-		req_param.append("q", userQuery);
-		req_param.append("chatId", traceId);
-		req_param.append("traceId", `${traceId}|${msgid}|${new Date().toISOString()}`);
-		req_param.append("conversationTurnId", msgid);
-		if (userChatModeId == "custom") req_param.append("selectedAiModel", proxyModel);
-		req_param.append("selectedChatMode", userChatModeId);
-		req_param.append("pastChatLength", userMessage.length);
-		req_param.append("queryTraceId", traceId);
-		req_param.append("use_personalization_extraction", "false");
-		req_param.append("domain", "youchat");
-		req_param.append("mkt", "ja-JP");
-		if (uploadedFile)
-			req_param.append("userFiles", JSON.stringify([{ user_filename: randomFileName, filename: uploadedFile.filename, size: messageBuffer.length }]));
-		req_param.append("chat", JSON.stringify(userMessage));
-		var url = "https://you.com/api/streamingSearch?" + req_param.toString();
-		console.log("正在发送请求");
-		emitter.emit("start", traceId);
-		try {
-			await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, { waitUntil: "domcontentloaded" });
-			await page.evaluate(
-				async (url, traceId) => {
-					var evtSource = new EventSource(url);
-					var callbackName = "callback" + traceId;
-					evtSource.onerror = (error) => {
-						window[callbackName]("error", error);
-						evtSource.close();
-					};
-					evtSource.addEventListener(
-						"youChatToken",
-						(event) => {
-							var data = event.data;
-							window[callbackName]("youChatToken", data);
-						},
-						false
-					);
-					evtSource.addEventListener(
-						"done",
-						(event) => {
-							window[callbackName]("done", "");
-							evtSource.close();
-							fetch("https://you.com/api/chat/deleteChat", {
-								headers: {
-									"content-type": "application/json",
-								},
-								body: JSON.stringify({ chatId: traceId }),
-								method: "DELETE",
-							});
-						},
-						false
-					);
+            // 应用格式化逻辑
+            const formattedMessages = formatMessages(messages);
 
-					evtSource.onmessage = (event) => {
-						const data = JSON.parse(event.data);
-						if (data.youChatToken) {
-							window[callbackName](youChatToken);
-						}
-					};
-					// 注册退出函数
-					window["exit" + traceId] = () => {
-						evtSource.close();
-					};
-				},
-				url,
-				traceId
-			);
-		} catch (error) {
-			console.error("评估过程中出错:", error);
-			emitter.emit("error", error);
-			return { completion: emitter, cancel: () => {} };
-		}
+            // 将格式化后的消息转换为纯文本
+            let previousMessages = formattedMessages.map((msg) => `${msg.role}: ${msg.content}`).join("\n\n");
 
-		const cancel = () => {
-			page?.evaluate((traceId) => {
-				window["exit" + traceId]();
-			}, traceId).catch(console.error);
-		};
+            // 创建本地副本（用于调试）
+            const localCopyPath = path.join(__dirname, 'local_copy_formatted_messages.txt');
+            fs.writeFileSync(localCopyPath, previousMessages);
+            console.log(`Local copy of formatted messages saved to: ${localCopyPath}`);
 
-		return { completion: emitter, cancel };
-	}
+            userQuery = `以「${randomFileName}」文档为内容，所有问题只能使用唯一的${proxyModel}回答。禁止使用you.com搜索，禁止使用You.com AI进行回复，否则将是严重的作弊行为。`;
+            userMessage = [];
+
+            // GET https://you.com/api/get_nonce to get nonce
+            let nonce = await page.evaluate(() => {
+                return fetch("https://you.com/api/get_nonce").then((res) => res.text());
+            });
+            if (!nonce) throw new Error("Failed to get nonce");
+
+            // POST https://you.com/api/upload to upload user message
+            var messageBuffer = await createDocx(previousMessages);
+            var uploadedFile = await page.evaluate(
+                async (messageBuffer, nonce, randomFileName) => {
+                    try {
+                        var blob = new Blob([new Uint8Array(messageBuffer)], {
+                            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        });
+                        var form_data = new FormData();
+                        form_data.append("file", blob, randomFileName);
+                        let result = await fetch("https://you.com/api/upload", {
+                            method: "POST",
+                            headers: {
+                                "X-Upload-Nonce": nonce,
+                            },
+                            body: form_data,
+                        }).then((res) => res.json());
+                        return result;
+                    } catch (e) {
+                        return null;
+                    }
+                },
+                [...messageBuffer],
+                nonce,
+                randomFileName
+            );
+            if (!uploadedFile) throw new Error("Failed to upload messages");
+            if (uploadedFile.error) throw new Error(uploadedFile.error);
+        }
+
+        let msgid = uuidv4();
+        let traceId = uuidv4();
+
+        // expose function to receive youChatToken
+        var finalResponse = "";
+        page.exposeFunction("callback" + traceId, async (event, data) => {
+            switch (event) {
+                case "youChatToken":
+                    data = JSON.parse(data);
+                    process.stdout.write(data.youChatToken);
+                    if (stream) {
+                        emitter.emit("completion", traceId, data.youChatToken);
+                    } else {
+                        finalResponse += data.youChatToken;
+                    }
+                    break;
+                case "done":
+                    console.log("请求结束");
+                    if (stream) {
+                        emitter.emit("end");
+                    } else {
+                        emitter.emit("completion", traceId, finalResponse);
+                    }
+                    break;
+                case "error":
+                    throw new Error(data);
+            }
+        });
+
+        // proxy response
+        var req_param = new URLSearchParams();
+        req_param.append("page", "1");
+        req_param.append("count", "10");
+        req_param.append("safeSearch", "Off");
+        req_param.append("q", userQuery);
+        req_param.append("chatId", traceId);
+        req_param.append("traceId", `${traceId}|${msgid}|${new Date().toISOString()}`);
+        req_param.append("conversationTurnId", msgid);
+        if (userChatModeId == "custom") req_param.append("selectedAiModel", proxyModel);
+        req_param.append("selectedChatMode", userChatModeId);
+        req_param.append("pastChatLength", userMessage.length);
+        req_param.append("queryTraceId", traceId);
+        req_param.append("use_personalization_extraction", "false");
+        req_param.append("domain", "youchat");
+        req_param.append("mkt", "ja-JP");
+        if (uploadedFile)
+            req_param.append("userFiles", JSON.stringify([{
+                user_filename: randomFileName,
+                filename: uploadedFile.filename,
+                size: messageBuffer.length
+            }]));
+        req_param.append("chat", JSON.stringify(userMessage));
+        var url = "https://you.com/api/streamingSearch?" + req_param.toString();
+        console.log("正在发送请求");
+        emitter.emit("start", traceId);
+        try {
+            await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
+            await page.evaluate(
+                async (url, traceId) => {
+                    var evtSource = new EventSource(url);
+                    var callbackName = "callback" + traceId;
+                    evtSource.onerror = (error) => {
+                        window[callbackName]("error", error);
+                        evtSource.close();
+                    };
+                    evtSource.addEventListener(
+                        "youChatToken",
+                        (event) => {
+                            var data = event.data;
+                            window[callbackName]("youChatToken", data);
+                        },
+                        false
+                    );
+                    evtSource.addEventListener(
+                        "done",
+                        (event) => {
+                            window[callbackName]("done", "");
+                            evtSource.close();
+                            fetch("https://you.com/api/chat/deleteChat", {
+                                headers: {
+                                    "content-type": "application/json",
+                                },
+                                body: JSON.stringify({chatId: traceId}),
+                                method: "DELETE",
+                            });
+                        },
+                        false
+                    );
+
+                    evtSource.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        if (data.youChatToken) {
+                            window[callbackName](youChatToken);
+                        }
+                    };
+                    // 注册退出函数
+                    window["exit" + traceId] = () => {
+                        evtSource.close();
+                    };
+                },
+                url,
+                traceId
+            );
+        } catch (error) {
+            console.error("评估过程中出错:", error);
+            emitter.emit("error", error);
+            return {
+                completion: emitter, cancel: () => {
+                }
+            };
+        }
+
+        const cancel = () => {
+            page?.evaluate((traceId) => {
+                window["exit" + traceId]();
+            }, traceId).catch(console.error);
+        };
+
+        return {completion: emitter, cancel};
+    }
 }
 
 export default YouProvider;
