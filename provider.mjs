@@ -18,7 +18,7 @@ class YouProvider {
         this.config = config;
         this.sessions = {};
         // 可以是 'chrome', 'edge', 或 'auto'
-        this.preferredBrowser = 'edge';
+        this.preferredBrowser = 'auto';
         this.isCustomModeEnabled = process.env.USE_CUSTOM_MODE === "true";
         this.isRotationEnabled = process.env.ENABLE_MODE_ROTATION === "true";
         this.currentMode = "default";
@@ -128,18 +128,17 @@ class YouProvider {
                         // 等待页面加载完毕
                         await sleep(5000);
                         console.log(`请在打开的浏览器窗口中手动登录 You.com (session #${session.configIndex})`);
-                        await this.waitForManualLogin(page);
-                        const cookies = await page.cookies();
-                        const sessionCookie = this.extractSessionCookie(cookies);
+                        const { loginInfo, sessionCookie } = await this.waitForManualLogin(page);
                         if (sessionCookie) {
-                            this.sessions[sessionCookie.email] = {
+                            const email = loginInfo || sessionCookie.email;
+                            this.sessions[email] = {
                                 ...session,
                                 ...sessionCookie,
                             };
                             delete this.sessions[username];
-                            username = sessionCookie.email;
+                            username = email;
                             session = this.sessions[username];
-                            console.log(`成功获取 ${sessionCookie.email} 登录的 cookie`);
+                            console.log(`成功获取 ${email} 登录的 cookie`);
                         } else {
                             console.error(`未能获取到 session #${session.configIndex} 有效登录的 cookie`);
                             await browser.close();
@@ -200,20 +199,31 @@ class YouProvider {
     async waitForManualLogin(page) {
         return new Promise((resolve) => {
             const checkLoginStatus = async () => {
-                const isLoggedIn = await page.evaluate(() => {
-                    return !!document.querySelector('button[aria-label="User menu"]');
+                const loginInfo = await page.evaluate(() => {
+                    const userProfileElement = document.querySelector('[data-testid="user-profile-button"]');
+                    if (userProfileElement) {
+                        const emailElement = userProfileElement.querySelector('.sc-9d7dc8d-4');
+                        return emailElement ? emailElement.textContent : null;
+                    }
+                    return null;
                 });
-                if (isLoggedIn) {
-                    console.log("检测到登录成功");
-                    resolve();
+
+                if (loginInfo) {
+                    console.log(`检测到自动登录成功: ${loginInfo}`);
+                    // 立即获取 cookie
+                    const cookies = await page.cookies();
+                    const sessionCookie = this.extractSessionCookie(cookies);
+                    resolve({ loginInfo, sessionCookie });
                 } else {
                     setTimeout(checkLoginStatus, 1000);
                 }
             };
 
-            page.on('request', request => {
+            page.on('request', async (request) => {
                 if (request.url().includes('https://you.com/api/instrumentation')) {
-                    resolve();
+                    const cookies = await page.cookies();
+                    const sessionCookie = this.extractSessionCookie(cookies);
+                    resolve({ loginInfo: null, sessionCookie });
                 }
             });
 
