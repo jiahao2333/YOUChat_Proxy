@@ -18,7 +18,7 @@ class YouProvider {
         this.config = config;
         this.sessions = {};
         // 可以是 'chrome', 'edge', 或 'auto'
-        this.preferredBrowser = 'auto';
+        this.preferredBrowser = 'edge';
         this.isCustomModeEnabled = process.env.USE_CUSTOM_MODE === "true";
         this.isRotationEnabled = process.env.ENABLE_MODE_ROTATION === "true";
         this.currentMode = "default";
@@ -66,12 +66,12 @@ class YouProvider {
         } else {
             // 使用配置文件中的 cookie
             for (let index = 0; index < config.sessions.length; index++) {
-                let session = config.sessions[index];
-                let {jwtSession, jwtToken, ds, dsr} = extractCookie(session.cookie);
+                const session = config.sessions[index];
+                const {jwtSession, jwtToken, ds, dsr} = extractCookie(session.cookie);
                 if (jwtSession && jwtToken) {
                     // 旧版cookie处理
                     try {
-                        let jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
+                        const jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
                         this.sessions[jwt.user.name] = {
                             configIndex: index,
                             jwtSession,
@@ -85,7 +85,7 @@ class YouProvider {
                 } else if (ds) {
                     // 新版cookie处理
                     try {
-                        let jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
+                        const jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
                         this.sessions[jwt.email] = {
                             configIndex: index,
                             ds,
@@ -107,91 +107,95 @@ class YouProvider {
             console.log(`已添加 ${Object.keys(this.sessions).length} 个 cookie，开始验证有效性`);
         }
 
-        for (let username of Object.keys(this.sessions)) {
-            let session = this.sessions[username];
-            createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", username));
+        for (const originalUsername of Object.keys(this.sessions)) {
+            let currentUsername = originalUsername;
+            let session = this.sessions[currentUsername];
+            createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", currentUsername));
             const isWindows = os.platform() === 'win32';
 
-            await connect({
-                headless: isWindows ? false : 'auto',
-                turnstile: true,
-                customConfig: {
-                    userDataDir: path.join(__dirname, "browser_profiles", username),
-                    executablePath: browserPath,
-                },
-            })
-                .then(async (response) => {
-                    const { page, browser } = response;
-                    if (process.env.USE_MANUAL_LOGIN === "true") {
-                        console.log(`正在为 session #${session.configIndex} 进行手动登录...`);
-                        await page.goto("https://you.com", { timeout: timeout });
-                        // 等待页面加载完毕
-                        await sleep(5000);
-                        console.log(`请在打开的浏览器窗口中手动登录 You.com (session #${session.configIndex})`);
-                        const { loginInfo, sessionCookie } = await this.waitForManualLogin(page);
-                        if (sessionCookie) {
-                            const email = loginInfo || sessionCookie.email;
-                            this.sessions[email] = {
-                                ...session,
-                                ...sessionCookie,
-                            };
-                            delete this.sessions[username];
-                            username = email;
-                            session = this.sessions[username];
-                            console.log(`成功获取 ${email} 登录的 cookie`);
-                        } else {
-                            console.error(`未能获取到 session #${session.configIndex} 有效登录的 cookie`);
-                            await browser.close();
-                            return;
-                        }
+            try {
+                const response = await connect({
+                    headless: isWindows ? false : 'auto',
+                    turnstile: true,
+                    customConfig: {
+                        userDataDir: path.join(__dirname, "browser_profiles", currentUsername),
+                        executablePath: browserPath,
+                    },
+                });
+
+                const { page, browser } = response;
+                if (process.env.USE_MANUAL_LOGIN === "true") {
+                    console.log(`正在为 session #${session.configIndex} 进行手动登录...`);
+                    await page.goto("https://you.com", { timeout: timeout });
+                    // 等待页面加载完毕
+                    await sleep(5000);
+                    console.log(`请在打开的浏览器窗口中手动登录 You.com (session #${session.configIndex})`);
+                    const { loginInfo, sessionCookie } = await this.waitForManualLogin(page);
+                    if (sessionCookie) {
+                        const email = loginInfo || sessionCookie.email;
+                        this.sessions[email] = {
+                            ...session,
+                            ...sessionCookie,
+                        };
+                        delete this.sessions[currentUsername];
+                        currentUsername = email;
+                        session = this.sessions[currentUsername];
+                        console.log(`成功获取 ${email} 登录的 cookie (${sessionCookie.isNewVersion ? '新版' : '旧版'})`);
+
+                        // 兼容设置隐身模式
+                        await page.setCookie(...sessionCookie);
                     } else {
-                        await page.setCookie(...getSessionCookie(
-                            session.jwtSession,
-                            session.jwtToken,
-                            session.ds,
-                            session.dsr
-                        ));
-                        await page.goto("https://you.com", { timeout: timeout });
+                        console.error(`未能获取到 session #${session.configIndex} 有效登录的 cookie`);
+                        await browser.close();
+                        continue;
                     }
+                } else {
+                    await page.setCookie(...getSessionCookie(
+                        session.jwtSession,
+                        session.jwtToken,
+                        session.ds,
+                        session.dsr
+                    ));
+                    await page.goto("https://you.com", { timeout: timeout });
+                }
 
-                    await sleep(5000); // 等待加载完毕
+                await sleep(5000); // 等待加载完毕
 
-                    // 如果遇到盾了就多等一段时间
-                    let pageContent = await page.content();
-                    if (pageContent.indexOf("https://challenges.cloudflare.com") > -1) {
-                        console.log(`请在30秒内完成人机验证 (${username})`);
-                        await page.evaluate(() => {
-                            alert("请在30秒内完成人机验证");
-                        });
-                        await sleep(30000);
-                    }
+                // 如果遇到盾了就多等一段时间
+                const pageContent = await page.content();
+                if (pageContent.indexOf("https://challenges.cloudflare.com") > -1) {
+                    console.log(`请在30秒内完成人机验证 (${currentUsername})`);
+                    await page.evaluate(() => {
+                        alert("请在30秒内完成人机验证");
+                    });
+                    await sleep(30000);
+                }
 
-                    // 验证 cookie 有效性
-                    try {
-                        let content = await page.evaluate(() => {
-                            return fetch("https://you.com/api/user/getYouProState").then((res) => res.text());
-                        });
-                        let json = JSON.parse(content);
-                        if (json.subscriptions.length > 0) {
-                            console.log(`${username} 有效`);
-                            session.valid = true;
-                            session.browser = browser;
-                            session.page = page;
-                        } else {
-                            console.log(`${username} 无有效订阅`);
-                            console.warn(`警告: ${username} 可能没有有效的订阅。请检查You是否有有效的Pro订阅。`);
-                            await browser.close();
-                        }
-                    } catch (e) {
-                        console.log(`${username} 已失效`);
-                        console.warn(`警告: ${username} 验证失败。请检查cookie是否有效。`);
+                // 验证 cookie 有效性
+                try {
+                    const content = await page.evaluate(() => {
+                        return fetch("https://you.com/api/user/getYouProState").then((res) => res.text());
+                    });
+                    const json = JSON.parse(content);
+                    if (json.subscriptions.length > 0) {
+                        console.log(`${currentUsername} 有效`);
+                        session.valid = true;
+                        session.browser = browser;
+                        session.page = page;
+                    } else {
+                        console.log(`${currentUsername} 无有效订阅`);
+                        console.warn(`警告: ${currentUsername} 可能没有有效的订阅。请检查You是否有有效的Pro订阅。`);
                         await browser.close();
                     }
-                })
-                .catch((e) => {
-                    console.error(`初始化浏览器失败 (${username})`);
-                    console.error(e);
-                });
+                } catch (e) {
+                    console.log(`${currentUsername} 已失效`);
+                    console.warn(`警告: ${currentUsername} 验证失败。请检查cookie是否有效。`);
+                    await browser.close();
+                }
+            } catch (e) {
+                console.error(`初始化浏览器失败 (${currentUsername})`);
+                console.error(e);
+            }
         }
         console.log(`验证完毕，有效cookie数量 ${Object.keys(this.sessions).filter((username) => this.sessions[username].valid).length}`);
     }
@@ -210,9 +214,14 @@ class YouProvider {
 
                 if (loginInfo) {
                     console.log(`检测到自动登录成功: ${loginInfo}`);
-                    // 立即获取 cookie
                     const cookies = await page.cookies();
                     const sessionCookie = this.extractSessionCookie(cookies);
+
+                    // 设置 隐身模式 cookie
+                    if (sessionCookie) {
+                        await page.setCookie(...sessionCookie);
+                    }
+
                     resolve({ loginInfo, sessionCookie });
                 } else {
                     setTimeout(checkLoginStatus, 1000);
@@ -223,6 +232,12 @@ class YouProvider {
                 if (request.url().includes('https://you.com/api/instrumentation')) {
                     const cookies = await page.cookies();
                     const sessionCookie = this.extractSessionCookie(cookies);
+
+                    // 设置 隐身模式 cookie
+                    if (sessionCookie) {
+                        await page.setCookie(...sessionCookie);
+                    }
+
                     resolve({ loginInfo: null, sessionCookie });
                 }
             });
@@ -234,11 +249,26 @@ class YouProvider {
     extractSessionCookie(cookies) {
         const ds = cookies.find(c => c.name === 'DS')?.value;
         const dsr = cookies.find(c => c.name === 'DSR')?.value;
-        if (ds) {
-            const jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
-            return {ds, dsr, email: jwt.email};
+        const jwtSession = cookies.find(c => c.name === 'stytch_session')?.value;
+        const jwtToken = cookies.find(c => c.name === 'stytch_session_jwt')?.value;
+
+        let sessionCookie = null;
+
+        if (ds || (jwtSession && jwtToken)) {
+            sessionCookie = getSessionCookie(jwtSession, jwtToken, ds, dsr);
+
+            if (ds) {
+                const jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
+                sessionCookie.email = jwt.email;
+                sessionCookie.isNewVersion = true;
+            } else {
+                const jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
+                sessionCookie.email = jwt.user.name;
+                sessionCookie.isNewVersion = false;
+            }
         }
-        return null;
+
+        return sessionCookie;
     }
 
     detectBrowser() {
@@ -525,7 +555,7 @@ class YouProvider {
         let traceId = uuidv4();
 
         // expose function to receive youChatToken
-        var finalResponse = "";
+        let finalResponse = "";
         page.exposeFunction("callback" + traceId, async (event, data) => {
             switch (event) {
                 case "youChatToken":
@@ -551,7 +581,7 @@ class YouProvider {
         });
 
         // proxy response
-        var req_param = new URLSearchParams();
+        const req_param = new URLSearchParams();
         req_param.append("page", "1");
         req_param.append("count", "10");
         req_param.append("safeSearch", "Off");
@@ -559,9 +589,9 @@ class YouProvider {
         req_param.append("chatId", traceId);
         req_param.append("traceId", `${traceId}|${msgid}|${new Date().toISOString()}`);
         req_param.append("conversationTurnId", msgid);
-        if (userChatModeId == "custom") req_param.append("selectedAiModel", proxyModel);
+        if (userChatModeId === "custom") req_param.append("selectedAiModel", proxyModel);
         req_param.append("selectedChatMode", userChatModeId);
-        req_param.append("pastChatLength", userMessage.length);
+        req_param.append("pastChatLength", userMessage.length.toString());
         req_param.append("queryTraceId", traceId);
         req_param.append("use_personalization_extraction", "false");
         req_param.append("domain", "youchat");
@@ -573,15 +603,15 @@ class YouProvider {
                 size: messageBuffer.length
             }]));
         req_param.append("chat", JSON.stringify(userMessage));
-        var url = "https://you.com/api/streamingSearch?" + req_param.toString();
+        const url = "https://you.com/api/streamingSearch?" + req_param.toString();
         console.log("正在发送请求");
         emitter.emit("start", traceId);
         try {
             await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
             await page.evaluate(
                 async (url, traceId) => {
-                    var evtSource = new EventSource(url);
-                    var callbackName = "callback" + traceId;
+                    const evtSource = new EventSource(url);
+                    const callbackName = "callback" + traceId;
                     evtSource.onerror = (error) => {
                         window[callbackName]("error", error);
                         evtSource.close();
@@ -589,14 +619,14 @@ class YouProvider {
                     evtSource.addEventListener(
                         "youChatToken",
                         (event) => {
-                            var data = event.data;
+                            const data = event.data;
                             window[callbackName]("youChatToken", data);
                         },
                         false
                     );
                     evtSource.addEventListener(
                         "done",
-                        (event) => {
+                        () => {
                             window[callbackName]("done", "");
                             evtSource.close();
                             fetch("https://you.com/api/chat/deleteChat", {
@@ -613,7 +643,7 @@ class YouProvider {
                     evtSource.onmessage = (event) => {
                         const data = JSON.parse(event.data);
                         if (data.youChatToken) {
-                            window[callbackName](youChatToken);
+                            window[callbackName]("youChatToken", data.youChatToken);
                         }
                     };
                     // 注册退出函数
@@ -628,8 +658,8 @@ class YouProvider {
             console.error("评估过程中出错:", error);
             emitter.emit("error", error);
             return {
-                completion: emitter, cancel: () => {
-                }
+                completion: emitter,
+                cancel: () => {}
             };
         }
 
