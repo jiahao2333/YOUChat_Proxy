@@ -21,28 +21,24 @@ function createDirectoryIfNotExists(dirPath) {
 }
 
 function extractCookie(cookies) {
-    var jwtSession = null;
-    var jwtToken = null;
-    var ds = null;
-    var dsr = null;
-    var youproSubscription = null;
-    var youSubscription = null;
-    var aiModel = null;
+    let jwtSession = null;
+    let jwtToken = null;
+    let ds = null;
+    let dsr = null;
 
     cookies = cookie.parse(cookies);
     if (cookies["stytch_session"]) jwtSession = cookies["stytch_session"];
     if (cookies["stytch_session_jwt"]) jwtToken = cookies["stytch_session_jwt"];
     if (cookies["DS"]) ds = cookies["DS"];
     if (cookies["DSR"]) dsr = cookies["DSR"];
-    if (cookies["youpro_subscription"]) youproSubscription = cookies["youpro_subscription"];
-    if (cookies["you_subscription"]) youSubscription = cookies["you_subscription"];
-    if (cookies["ai_model"]) aiModel = cookies["ai_model"];
 
-    return { jwtSession, jwtToken, ds, dsr, youproSubscription, youSubscription, aiModel };
+    return { jwtSession, jwtToken, ds, dsr };
 }
 
-function getSessionCookie(jwtSession, jwtToken, ds, dsr, youproSubscription, youSubscription, aiModel) {
-    var sessionCookie = [];
+function getSessionCookie(jwtSession, jwtToken, ds, dsr) {
+    let sessionCookie = [];
+
+    // 处理旧版 cookie
     if (jwtSession && jwtToken) {
         sessionCookie = [
             {
@@ -87,6 +83,8 @@ function getSessionCookie(jwtSession, jwtToken, ds, dsr, youproSubscription, you
             }
         ];
     }
+
+    // 处理新版 cookie
     if (ds) {
         sessionCookie.push({
             name: "DS",
@@ -111,36 +109,8 @@ function getSessionCookie(jwtSession, jwtToken, ds, dsr, youproSubscription, you
             sameSite: "Lax",
         });
     }
-    if (youproSubscription) {
-        sessionCookie.push({
-            name: "youpro_subscription",
-            value: youproSubscription,
-            domain: "you.com",
-            path: "/",
-            expires: 1800000000,
-            secure: true,
-        });
-    }
-    if (youSubscription) {
-        sessionCookie.push({
-            name: "you_subscription",
-            value: youSubscription,
-            domain: "you.com",
-            path: "/",
-            expires: 1800000000,
-            secure: true,
-        });
-    }
-    if (aiModel) {
-        sessionCookie.push({
-            name: "ai_model",
-            value: aiModel,
-            domain: "you.com",
-            path: "/",
-            expires: 1800000000,
-            secure: true,
-        });
-    }
+
+    // 添加隐身模式 cookie（如果启用）
     if(process.env.INCOGNITO_MODE === "true") {
         sessionCookie.push({
             name: "incognito",
@@ -158,7 +128,7 @@ function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 function createDocx(content) {
-	var paragraphs = [];
+    let paragraphs = [];
 	content.split("\n").forEach((line) => {
 		paragraphs.push(
 			new docx.Paragraph({
@@ -166,7 +136,7 @@ function createDocx(content) {
 			})
 		);
 	});
-	var doc = new docx.Document({
+    let doc = new docx.Document({
 		sections: [
 			{
 				properties: {},
