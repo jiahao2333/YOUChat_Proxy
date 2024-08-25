@@ -56,10 +56,8 @@ class YouProvider {
 
         // extract essential jwt session and token from cookie
         for (let index = 0; index < config.sessions.length; index++) {
-            let session = config.sessions[index];
-            var { jwtSession, jwtToken, ds, dsr, youproSubscription, youSubscription, aiModel } = extractCookie(session.cookie);
-
-            if (jwtSession && jwtToken) {
+			let session = config.sessions[index], {jwtSession, jwtToken, ds, dsr} = extractCookie(session.cookie);
+			if (jwtSession && jwtToken) {
                 // 旧版cookie处理
                 try {
                     let jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
@@ -67,9 +65,6 @@ class YouProvider {
                         configIndex: index,
                         jwtSession,
                         jwtToken,
-                        youproSubscription,
-                        youSubscription,
-                        aiModel,
                         valid: false,
                     };
                     console.log(`已添加 #${index} ${jwt.user.name} (旧版cookie)`);
@@ -77,51 +72,32 @@ class YouProvider {
                     console.error(`解析第${index}个旧版cookie失败: ${e.message}`);
                 }
             } else if (ds) {
-                // 新版cookie处理，只要有DS就处理
+                // 新版cookie处理
                 try {
                     let jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
                     this.sessions[jwt.email] = {
                         configIndex: index,
                         ds,
-                        dsr, // 即使dsr为null也会被添加
-                        youproSubscription,
-                        youSubscription,
-                        aiModel,
+                        dsr,
                         valid: false,
                     };
                     console.log(`已添加 #${index} ${jwt.email} (新版cookie)`);
                     if (!dsr) {
-                        console.warn(`警告: 第${index}个cookie缺少DSR字段。程序继续执行。`);
+                        console.warn(`警告: 第${index}个cookie缺少DSR字段。`);
                     }
                 } catch (e) {
                     console.error(`解析第${index}个新版cookie失败: ${e.message}`);
                 }
             } else {
-                // 无效cookie处理
                 console.error(`第${index}个cookie无效，请重新获取。`);
-                if (jwtSession || jwtToken) {
-                    console.error(`检测到部分旧版cookie字段，但不完整。`);
-                    if (!jwtSession) console.error(`缺少: stytch_session`);
-                    if (!jwtToken) console.error(`缺少: stytch_session_jwt`);
-                } else if (ds) {
-                    console.error(`检测到新版cookie的DS字段，但缺少其他必要字段。`);
-                } else {
-                    console.error(`未检测到任何有效的cookie字段。`);
-                }
-                console.error(`提示: 请确保登录You.com并成功获取完整的cookie。`);
-                continue; // 跳过无效的cookie，继续下一个
-            }
-
-            if (youproSubscription === "false" || youSubscription === "freemium") {
-                console.warn(`警告: 第${index}个cookie可能没有有效的订阅。请检查You是否有有效的Pro订阅。`);
+                console.error(`未检测到有效的DS或stytch_session字段。`);
             }
         }
-        console.log(`已添加 ${Object.keys(this.sessions).length} 个 cookie，开始验证有效性（是否有订阅）`);
-		
-		
-        for (var username of Object.keys(this.sessions)) {
-            var session = this.sessions[username];
-            createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", username));
+        console.log(`已添加 ${Object.keys(this.sessions).length} 个 cookie，开始验证有效性`);
+
+        for (let username of Object.keys(this.sessions)) {
+			let session = this.sessions[username];
+			createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", username));
             await connect({
                 headless: "auto",
                 turnstile: true,
@@ -136,16 +112,13 @@ class YouProvider {
                         session.jwtSession,
                         session.jwtToken,
                         session.ds,
-                        session.dsr,
-                        session.youproSubscription,
-                        session.youSubscription,
-                        session.aiModel
+                        session.dsr
                     ));
 
                     page.goto("https://you.com", { timeout: 60000 });
                     await sleep(5000); // 等待加载完毕
                     // 如果遇到盾了就多等一段时间
-                    var pageContent = await page.content();
+					let pageContent = await page.content();
                     if (pageContent.indexOf("https://challenges.cloudflare.com") > -1) {
                         console.log(`请在30秒内完成人机验证`);
                         page.evaluate(() => {
@@ -167,10 +140,12 @@ class YouProvider {
                             session.page = page;
                         } else {
                             console.log(`${username} 无有效订阅`);
+                            console.warn(`警告: ${username} 可能没有有效的订阅。请检查You是否有有效的Pro订阅。`);
                             await browser.close();
                         }
                     } catch (e) {
                         console.log(`${username} 已失效`);
+                        console.warn(`警告: ${username} 验证失败。请检查cookie是否有效。`);
                         await browser.close();
                     }
                 })
@@ -200,8 +175,8 @@ class YouProvider {
 			browsers.edge = this.findLinuxBrowser('microsoft-edge');
 		}
 
-		const preferredBrowser = this.preferredBrowser === 'auto' || this.preferredBrowser === undefined 
-			? Object.keys(browsers).find(browser => browsers[browser]) 
+		const preferredBrowser = this.preferredBrowser === 'auto' || this.preferredBrowser === undefined
+			? Object.keys(browsers).find(browser => browsers[browser])
 			: this.preferredBrowser;
 
 		if (browsers[preferredBrowser]) {
@@ -249,7 +224,7 @@ class YouProvider {
 
 		const userAppDataPath = process.env.LOCALAPPDATA || `${process.env.USERPROFILE}\\AppData\\Local`;
 		const appDataPath = path.join(userAppDataPath, folderName, 'Application');
-		
+
 		if (fs.existsSync(appDataPath)) {
 			const files = fs.readdirSync(appDataPath);
 			const exePath = files.find(file => file.toLowerCase() === exeName.toLowerCase());
@@ -284,7 +259,7 @@ class YouProvider {
 		}
 	}
 
-	async getCompletion(username, messages, stream = false, proxyModel, useCustomMode = false) {
+	async getCompletion({username, messages, stream = false, proxyModel, useCustomMode = false}) {
 		const session = this.sessions[username];
 		if (!session || !session.valid) {
 			throw new Error(`用户 ${username} 的会话无效`);
@@ -297,15 +272,15 @@ class YouProvider {
 	            this.switchCounter++;
 	            this.requestsInCurrentMode++;
 	            console.log(`当前模式: ${this.currentMode}, 本模式下的请求次数: ${this.requestsInCurrentMode}, 距离下次切换还有 ${this.switchThreshold - this.switchCounter} 次请求`);
-	
+
 	            if (this.switchCounter >= this.switchThreshold) {
 	                this.switchMode();
 	            }
 	        }
-	
+
 	        // 根据轮换状态决定是否使用自定义模式
 	        const effectiveUseCustomMode = this.isRotationEnabled ? (this.currentMode === "custom") : useCustomMode;
-		
+
 		// 检查页面是否已经加载完成
 		const isLoaded = await page.evaluate(() => {
 			return document.readyState === 'complete' || document.readyState === 'interactive';
@@ -319,7 +294,7 @@ class YouProvider {
 		}
 
 		await page.goto("https://you.com/?chatMode=default", { waitUntil: "domcontentloaded" });
-		
+
 		// 计算用户消息长度
 		let userMessage = [{ question: "", answer: "" }];
 		let userQuery = "";
@@ -393,7 +368,7 @@ class YouProvider {
 		} else {
 			console.log("Custom mode is disabled, using default mode.");
 		}
-		
+
 		// 生成随机文件名
 		function generateRandomFileName(length) {
 		  const validChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
@@ -403,7 +378,7 @@ class YouProvider {
 		  }
 		  return result + '.docx';
 		}
-		
+
 		// 生成随机长度（6-16）的文件名
 		const randomFileName = generateRandomFileName(Math.floor(Math.random() * 11) + 6);
 		console.log(`Generated random file name: ${randomFileName}`);
