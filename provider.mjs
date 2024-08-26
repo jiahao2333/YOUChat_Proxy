@@ -1,6 +1,6 @@
 import {EventEmitter} from "events";
 import {connect} from "puppeteer-real-browser";
-import {v4 as uuidv4} from "uuid";
+import {v4 as uuidV4} from "uuid";
 import path from "path";
 import fs from "fs";
 import {fileURLToPath} from "url";
@@ -111,11 +111,10 @@ class YouProvider {
             let currentUsername = originalUsername;
             let session = this.sessions[currentUsername];
             createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", currentUsername));
-            const isWindows = os.platform() === 'win32';
 
             try {
                 const response = await connect({
-                    headless: isWindows ? false : 'auto',
+                    headless: "auto",
                     turnstile: true,
                     customConfig: {
                         userDataDir: path.join(__dirname, "browser_profiles", currentUsername),
@@ -123,14 +122,14 @@ class YouProvider {
                     },
                 });
 
-                const { page, browser } = response;
+                const {page, browser} = response;
                 if (process.env.USE_MANUAL_LOGIN === "true") {
                     console.log(`正在为 session #${session.configIndex} 进行手动登录...`);
-                    await page.goto("https://you.com", { timeout: timeout });
+                    await page.goto("https://you.com", {timeout: timeout});
                     // 等待页面加载完毕
                     await sleep(5000);
                     console.log(`请在打开的浏览器窗口中手动登录 You.com (session #${session.configIndex})`);
-                    const { loginInfo, sessionCookie } = await this.waitForManualLogin(page);
+                    const {loginInfo, sessionCookie} = await this.waitForManualLogin(page);
                     if (sessionCookie) {
                         const email = loginInfo || sessionCookie.email;
                         this.sessions[email] = {
@@ -156,7 +155,7 @@ class YouProvider {
                         session.ds,
                         session.dsr
                     ));
-                    await page.goto("https://you.com", { timeout: timeout });
+                    await page.goto("https://you.com", {timeout: timeout});
                 }
 
                 await sleep(5000); // 等待加载完毕
@@ -177,19 +176,28 @@ class YouProvider {
                         return fetch("https://you.com/api/user/getYouProState").then((res) => res.text());
                     });
                     const json = JSON.parse(content);
-                    if (json.subscriptions.length > 0) {
+                    if (json.subscriptions && json.subscriptions.length > 0) {
                         console.log(`${currentUsername} 有效`);
                         session.valid = true;
                         session.browser = browser;
                         session.page = page;
+
+                        // 获取订阅信息
+                        const subscriptionInfo = await this.getSubscriptionInfo(page);
+                        if (subscriptionInfo) {
+                            session.subscriptionInfo = subscriptionInfo;
+                        }
                     } else {
                         console.log(`${currentUsername} 无有效订阅`);
                         console.warn(`警告: ${currentUsername} 可能没有有效的订阅。请检查You是否有有效的Pro订阅。`);
+                        await this.clearYouCookies(page);
                         await browser.close();
                     }
                 } catch (e) {
                     console.log(`${currentUsername} 已失效`);
                     console.warn(`警告: ${currentUsername} 验证失败。请检查cookie是否有效。`);
+                    console.error(e);
+                    await this.clearYouCookies(page);
                     await browser.close();
                 }
             } catch (e) {
@@ -197,7 +205,97 @@ class YouProvider {
                 console.error(e);
             }
         }
+
+        console.log("订阅信息汇总：");
+        for (const [username, session] of Object.entries(this.sessions)) {
+            if (session.valid) {
+                console.log(`{${username}:`);
+                if (session.subscriptionInfo) {
+                    console.log(`  订阅计划: ${session.subscriptionInfo.planName}`);
+                    console.log(`  到期日期: ${session.subscriptionInfo.expirationDate}`);
+                    console.log(`  剩余天数: ${session.subscriptionInfo.daysRemaining}天`);
+                    if (session.subscriptionInfo.cancelAtPeriodEnd) {
+                        console.log('  注意: 该订阅已设置为在当前周期结束后取消');
+                    }
+                } else {
+                    console.log('  无法获取具体订阅信息，但账户有效');
+                }
+                console.log('}');
+            }
+        }
         console.log(`验证完毕，有效cookie数量 ${Object.keys(this.sessions).filter((username) => this.sessions[username].valid).length}`);
+    }
+
+    async getSubscriptionInfo(page) {
+        try {
+            const response = await page.evaluate(async () => {
+                const res = await fetch('https://you.com/api/user/getYouProState', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                return await res.json();
+            });
+            if (response && response.subscriptions && response.subscriptions.length > 0) {
+                const subscription = response.subscriptions[0];
+                if (subscription.start_date && subscription.interval) {
+                    const startDate = new Date(subscription.start_date);
+                    const today = new Date();
+                    let expirationDate;
+
+                    // 计算订阅结束日期
+                    if (subscription.interval === 'month') {
+                        expirationDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, startDate.getDate());
+                    } else if (subscription.interval === 'year') {
+                        expirationDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
+                    } else {
+                        console.log(`未知的订阅间隔: ${subscription.interval}`);
+                        return null;
+                    }
+
+                    // 如果计算出的结束日期已经过去，继续加月/年直到未来日期
+                    while (expirationDate <= today) {
+                        if (subscription.interval === 'month') {
+                            expirationDate.setMonth(expirationDate.getMonth() + 1);
+                        } else {
+                            expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+                        }
+                    }
+
+                    const daysRemaining = Math.ceil((expirationDate - today) / (1000 * 60 * 60 * 24));
+
+                    return {
+                        expirationDate: expirationDate.toLocaleDateString('zh-CN', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                        }),
+                        daysRemaining: daysRemaining,
+                        planName: subscription.plan_name,
+                        cancelAtPeriodEnd: subscription.cancel_at_period_end
+                    };
+                } else {
+                    console.log('订阅信息中缺少 start_date 或 interval 字段');
+                    return null;
+                }
+            } else {
+                console.log('API 响应中没有有效的订阅信息');
+                return null;
+            }
+        } catch (error) {
+            console.error('获取订阅信息时出错:', error);
+            return null;
+        }
+    }
+
+    async clearYouCookies(page) {
+        const client = await page.target().createCDPSession();
+        await client.send('Network.clearBrowserCookies');
+        await client.send('Network.clearBrowserCache');
+        const cookies = await page.cookies('https://you.com');
+        for (const cookie of cookies) {
+            await page.deleteCookie(cookie);
+        }
+        console.log('已自动清理 cookie');
     }
 
     async waitForManualLogin(page) {
@@ -222,7 +320,7 @@ class YouProvider {
                         await page.setCookie(...sessionCookie);
                     }
 
-                    resolve({ loginInfo, sessionCookie });
+                    resolve({loginInfo, sessionCookie});
                 } else {
                     setTimeout(checkLoginStatus, 1000);
                 }
@@ -238,7 +336,7 @@ class YouProvider {
                         await page.setCookie(...sessionCookie);
                     }
 
-                    resolve({ loginInfo: null, sessionCookie });
+                    resolve({loginInfo: null, sessionCookie});
                 }
             });
 
@@ -415,19 +513,19 @@ class YouProvider {
         let lastUpdate = true;
 
         messages.forEach((msg) => {
-            if (msg.role == "system" || msg.role == "user") {
+            if (msg.role === "system" || msg.role === "user") {
                 if (lastUpdate) {
                     userMessage[userMessage.length - 1].question += msg.content + "\n";
-                } else if (userMessage[userMessage.length - 1].question == "") {
+                } else if (userMessage[userMessage.length - 1].question === "") {
                     userMessage[userMessage.length - 1].question += msg.content + "\n";
                 } else {
                     userMessage.push({question: msg.content + "\n", answer: ""});
                 }
                 lastUpdate = true;
-            } else if (msg.role == "assistant") {
+            } else if (msg.role === "assistant") {
                 if (!lastUpdate) {
                     userMessage[userMessage.length - 1].answer += msg.content + "\n";
-                } else if (userMessage[userMessage.length - 1].answer == "") {
+                } else if (userMessage[userMessage.length - 1].answer === "") {
                     userMessage[userMessage.length - 1].answer += msg.content + "\n";
                 } else {
                     userMessage.push({question: "", answer: msg.content + "\n"});
@@ -467,7 +565,7 @@ class YouProvider {
                         }).then((res) => res.json());
                     },
                     proxyModel,
-                    uuidv4().substring(0, 4)
+                    uuidV4().substring(0, 4)
                 );
                 if (userChatMode.chat_mode_id) {
                     this.config.sessions[session.configIndex].user_chat_mode_id[proxyModel] = userChatMode.chat_mode_id;
@@ -551,8 +649,8 @@ class YouProvider {
             if (uploadedFile.error) throw new Error(uploadedFile.error);
         }
 
-        let msgid = uuidv4();
-        let traceId = uuidv4();
+        let msgid = uuidV4();
+        let traceId = uuidV4();
 
         // expose function to receive youChatToken
         let finalResponse = "";
@@ -606,6 +704,7 @@ class YouProvider {
         const url = "https://you.com/api/streamingSearch?" + req_param.toString();
         console.log("正在发送请求");
         emitter.emit("start", traceId);
+
         try {
             await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
             await page.evaluate(
@@ -659,7 +758,8 @@ class YouProvider {
             emitter.emit("error", error);
             return {
                 completion: emitter,
-                cancel: () => {}
+                cancel: () => {
+                }
             };
         }
 
