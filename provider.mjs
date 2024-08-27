@@ -18,7 +18,7 @@ class YouProvider {
         this.config = config;
         this.sessions = {};
         // 可以是 'chrome', 'edge', 或 'auto'
-        this.preferredBrowser = 'auto';
+        this.preferredBrowser = 'edge';
         this.isCustomModeEnabled = process.env.USE_CUSTOM_MODE === "true";
         this.isRotationEnabled = process.env.ENABLE_MODE_ROTATION === "true";
         this.currentMode = "default";
@@ -252,8 +252,18 @@ class YouProvider {
                         return null;
                     }
 
-                    // 如果计算出的结束日期已经过去，继续加月/年直到未来日期
-                    while (expirationDate <= today) {
+                    // 计算从开始日期到今天间隔数
+                    const intervalsPassed = Math.floor((today - startDate) / (subscription.interval === 'month' ? 30 : 365) / (24 * 60 * 60 * 1000));
+
+                    // 计算到期日期
+                    if (subscription.interval === 'month') {
+                        expirationDate.setMonth(expirationDate.getMonth() + intervalsPassed);
+                    } else {
+                        expirationDate.setFullYear(expirationDate.getFullYear() + intervalsPassed);
+                    }
+
+                    // 如果计算出的日期仍在过去，再加一个间隔
+                    if (expirationDate <= today) {
                         if (subscription.interval === 'month') {
                             expirationDate.setMonth(expirationDate.getMonth() + 1);
                         } else {
@@ -356,14 +366,29 @@ class YouProvider {
             sessionCookie = getSessionCookie(jwtSession, jwtToken, ds, dsr);
 
             if (ds) {
-                const jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
-                sessionCookie.email = jwt.email;
-                sessionCookie.isNewVersion = true;
-            } else {
-                const jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
-                sessionCookie.email = jwt.user.name;
-                sessionCookie.isNewVersion = false;
+                try {
+                    const jwt = JSON.parse(Buffer.from(ds.split(".")[1], "base64").toString());
+                    sessionCookie.email = jwt.email;
+                    sessionCookie.isNewVersion = true;
+                } catch (error) {
+                    console.error('解析DS令牌时出错:', error);
+                    return null;
+                }
+            } else if (jwtToken) {
+                try {
+                    const jwt = JSON.parse(Buffer.from(jwtToken.split(".")[1], "base64").toString());
+                    sessionCookie.email = jwt.user?.email || jwt.email || jwt.user?.name;
+                    sessionCookie.isNewVersion = false;
+                } catch (error) {
+                    console.error('JWT令牌解析错误:', error);
+                    return null;
+                }
             }
+        }
+
+        if (!sessionCookie || !sessionCookie.some(c => c.name === 'stytch_session' || c.name === 'DS')) {
+            console.error('无法提取有效的会话 cookie');
+            return null;
         }
 
         return sessionCookie;
