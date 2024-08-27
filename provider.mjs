@@ -412,13 +412,15 @@ class YouProvider {
             browsers.edge = this.findLinuxBrowser('microsoft-edge');
         }
 
-        const preferredBrowser = this.preferredBrowser === 'auto' || this.preferredBrowser === undefined
-            ? Object.keys(browsers).find(browser => browsers[browser])
-            : this.preferredBrowser;
-
-        if (browsers[preferredBrowser]) {
-            console.log(`使用${preferredBrowser === 'chrome' ? 'Chrome' : 'Edge'}浏览器`);
-            return browsers[preferredBrowser];
+        if (this.preferredBrowser === 'auto' || this.preferredBrowser === undefined) {
+            if (browsers.chrome) {
+                return browsers.chrome;
+            } else if (browsers.edge) {
+                return browsers.edge;
+            }
+        } else if (browsers[this.preferredBrowser]) {
+            console.log(`使用${this.preferredBrowser === 'chrome' ? 'Chrome' : 'Edge'}浏览器`);
+            return browsers[this.preferredBrowser];
         }
 
         console.error('未找到Chrome或Edge浏览器，请确保已安装其中之一');
