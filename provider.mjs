@@ -450,6 +450,7 @@ class YouProvider {
         const commonPaths = [
             `C:\\Program Files\\${browserName}\\Application\\${exeName}`,
             `C:\\Program Files (x86)\\${browserName}\\Application\\${exeName}`,
+            `C:\\Program Files (x86)\\Microsoft\\${browserName}\\Application\\${exeName}`,
             `${process.env.LOCALAPPDATA}\\${browserName}\\Application\\${exeName}`,
             `${process.env.USERPROFILE}\\AppData\\Local\\${browserName}\\Application\\${exeName}`,
         ];
