@@ -18,7 +18,7 @@ class YouProvider {
         this.config = config;
         this.sessions = {};
         // 可以是 'chrome', 'edge', 或 'auto'
-        this.preferredBrowser = 'edge';
+        this.preferredBrowser = 'auto';
         this.isCustomModeEnabled = process.env.USE_CUSTOM_MODE === "true";
         this.isRotationEnabled = process.env.ENABLE_MODE_ROTATION === "true";
         this.currentMode = "default";
