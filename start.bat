@@ -6,6 +6,12 @@ call npm install
 REM 设置是否启用手动登录
 set USE_MANUAL_LOGIN=true
 
+REM 是否允许非Pro账户
+set ALLOW_NON_PRO=false
+
+REM 设置自定义终止符(用于处理输出停不下来情况，留空则不启用，使用双引号包裹)
+set CUSTOM_END_MARKER="<CHAR_turn>"
+
 REM 设置是否启用隧道访问
 set ENABLE_TUNNEL=false
 
