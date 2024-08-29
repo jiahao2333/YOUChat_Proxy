@@ -113,6 +113,7 @@ class YouProvider {
             createDirectoryIfNotExists(path.join(__dirname, "browser_profiles", currentUsername));
 
             try {
+                await sleep(1000);
                 const response = await connect({
                     headless: "auto",
                     turnstile: true,
@@ -176,17 +177,27 @@ class YouProvider {
                         return fetch("https://you.com/api/user/getYouProState").then((res) => res.text());
                     });
                     const json = JSON.parse(content);
+                    const allowNonPro = process.env.ALLOW_NON_PRO === "true";
+
                     if (json.subscriptions && json.subscriptions.length > 0) {
                         console.log(`${currentUsername} 有效`);
                         session.valid = true;
                         session.browser = browser;
                         session.page = page;
+                        session.isPro = true;
 
                         // 获取订阅信息
                         const subscriptionInfo = await this.getSubscriptionInfo(page);
                         if (subscriptionInfo) {
                             session.subscriptionInfo = subscriptionInfo;
                         }
+                    } else if (allowNonPro) {
+                        console.log(`${currentUsername} 有效 (非Pro)`);
+                        console.warn(`警告: ${currentUsername} 没有Pro订阅，功能受限。`);
+                        session.valid = true;
+                        session.browser = browser;
+                        session.page = page;
+                        session.isPro = false;
                     } else {
                         console.log(`${currentUsername} 无有效订阅`);
                         console.warn(`警告: ${currentUsername} 可能没有有效的订阅。请检查You是否有有效的Pro订阅。`);
@@ -218,7 +229,7 @@ class YouProvider {
                         console.log('  注意: 该订阅已设置为在当前周期结束后取消');
                     }
                 } else {
-                    console.log('  无法获取具体订阅信息，但账户有效');
+                    console.log('  账户类型: 非Pro（功能受限）');
                 }
                 console.log('}');
             }
@@ -505,6 +516,10 @@ class YouProvider {
             throw new Error(`用户 ${username} 的会话无效`);
         }
 
+        //刷新页面
+        await session.page.goto("https://you.com", {waitUntil: 'domcontentloaded'});
+        await sleep(5000);
+
         const {page, browser} = session;
         const emitter = new EventEmitter();
         // 处理模式轮换逻辑
@@ -532,8 +547,6 @@ class YouProvider {
                 console.log('页面加载超时，继续执行');
             });
         }
-
-        await page.goto("https://you.com/?chatMode=default", {waitUntil: "domcontentloaded"});
 
         // 计算用户消息长度
         let userMessage = [{question: "", answer: ""}];
@@ -652,19 +665,18 @@ class YouProvider {
             var uploadedFile = await page.evaluate(
                 async (messageBuffer, nonce, randomFileName) => {
                     try {
-                        var blob = new Blob([new Uint8Array(messageBuffer)], {
+                        let blob = new Blob([new Uint8Array(messageBuffer)], {
                             type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         });
-                        var form_data = new FormData();
+                        let form_data = new FormData();
                         form_data.append("file", blob, randomFileName);
-                        let result = await fetch("https://you.com/api/upload", {
+                        return await fetch("https://you.com/api/upload", {
                             method: "POST",
                             headers: {
                                 "X-Upload-Nonce": nonce,
                             },
                             body: form_data,
                         }).then((res) => res.json());
-                        return result;
                     } catch (e) {
                         return null;
                     }
@@ -680,13 +692,31 @@ class YouProvider {
         let msgid = uuidV4();
         let traceId = uuidV4();
 
+        // 从环境变量中读取自定义终止，并去除可能存在的双引号
+        const customEndMarker = (process.env.CUSTOM_END_MARKER || '').replace(/^"|"$/g, '').trim();
+        let accumulatedResponse = '';
+        let isEnding = false;
+        let endTimeout = null;
+
+        function checkEndMarker(response, marker) {
+            if (!marker) return false;
+            const cleanResponse = response.replace(/\s+/g, '').toLowerCase();
+            const cleanMarker = marker.replace(/\s+/g, '').toLowerCase();
+            return cleanResponse.includes(cleanMarker);
+        }
+
         // expose function to receive youChatToken
         let finalResponse = "";
         page.exposeFunction("callback" + traceId, async (event, data) => {
+            if (isEnding) return; // 如果已经在结束过程中，不再处理新的事件
+
             switch (event) {
                 case "youChatToken":
                     data = JSON.parse(data);
                     process.stdout.write(data.youChatToken);
+                    accumulatedResponse += data.youChatToken;
+
+                    // 无论是否正在结束，都发送数据
                     if (stream) {
                         emitter.emit("completion", traceId, data.youChatToken);
                     } else {
@@ -694,15 +724,47 @@ class YouProvider {
                     }
                     break;
                 case "done":
+                    if (endTimeout) {
+                        clearTimeout(endTimeout);
+                    }
                     console.log("请求结束");
+                    isEnding = true;
                     if (stream) {
                         emitter.emit("end");
                     } else {
                         emitter.emit("completion", traceId, finalResponse);
                     }
+                    // 关闭 EventSource
+                    await page.evaluate((traceId) => {
+                        if (window["exit" + traceId]) {
+                            window["exit" + traceId]();
+                        }
+                    }, traceId);
                     break;
                 case "error":
-                    throw new Error(data);
+                    isEnding = true;
+                    emitter.emit("error", new Error(data));
+                    break;
+            }
+
+            // 检查自定义终止符
+            if (!isEnding && customEndMarker && checkEndMarker(accumulatedResponse, customEndMarker)) {
+                isEnding = true;
+
+                endTimeout = setTimeout(async () => {
+                    console.log("检测到自定义终止，关闭请求");
+                    if (stream) {
+                        emitter.emit("end");
+                    } else {
+                        emitter.emit("completion", traceId, finalResponse);
+                    }
+                    // 关闭 EventSource
+                    await page.evaluate((traceId) => {
+                        if (window["exit" + traceId]) {
+                            window["exit" + traceId]();
+                        }
+                    }, traceId);
+                }, 2000); // 延迟2秒关闭
             }
         });
 
@@ -722,6 +784,8 @@ class YouProvider {
         req_param.append("use_personalization_extraction", "false");
         req_param.append("domain", "youchat");
         req_param.append("mkt", "ja-JP");
+        const cid = `c0_${uuidV4()}`;
+        await page.goto(`https://you.com/search?q=${encodeURIComponent(userQuery)}&fromSearchBar=true&tbm=youchat&chatMode=custom&cid=${cid}`, {waitUntil: "domcontentloaded"});
         if (uploadedFile)
             req_param.append("userFiles", JSON.stringify([{
                 user_filename: randomFileName,
@@ -734,43 +798,69 @@ class YouProvider {
         emitter.emit("start", traceId);
 
         try {
-            await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
             await page.evaluate(
-                async (url, traceId) => {
+                async (url, traceId, customEndMarker) => {
+                    function checkEndMarker(response, marker) {
+                        if (!marker) return false;
+                        const cleanResponse = response.replace(/\s+/g, '').toLowerCase();
+                        const cleanMarker = marker.replace(/\s+/g, '').toLowerCase();
+                        return cleanResponse.includes(cleanMarker);
+                    }
+
                     const evtSource = new EventSource(url);
                     const callbackName = "callback" + traceId;
+                    let accumulatedResponse = '';
+                    let isEnding = false;
+
                     evtSource.onerror = (error) => {
-                        window[callbackName]("error", error);
-                        evtSource.close();
+                        if (!isEnding) {
+                            window[callbackName]("error", error);
+                            evtSource.close();
+                        }
                     };
                     evtSource.addEventListener(
                         "youChatToken",
                         (event) => {
-                            const data = event.data;
-                            window[callbackName]("youChatToken", data);
+                            if (isEnding) return;
+
+                            const data = JSON.parse(event.data);
+                            window[callbackName]("youChatToken", JSON.stringify(data));
+
+                            if (customEndMarker) {
+                                accumulatedResponse += data.youChatToken;
+                                if (checkEndMarker(accumulatedResponse, customEndMarker)) {
+                                    console.log("检测到自定义终止，准备结束请求");
+                                }
+                            }
                         },
                         false
                     );
+
                     evtSource.addEventListener(
                         "done",
                         () => {
-                            window[callbackName]("done", "");
-                            evtSource.close();
-                            fetch("https://you.com/api/chat/deleteChat", {
-                                headers: {
-                                    "content-type": "application/json",
-                                },
-                                body: JSON.stringify({chatId: traceId}),
-                                method: "DELETE",
-                            });
+                            if (!isEnding) {
+                                isEnding = true;
+                                window[callbackName]("done", "");
+                                evtSource.close();
+                                fetch("https://you.com/api/chat/deleteChat", {
+                                    headers: {
+                                        "content-type": "application/json",
+                                    },
+                                    body: JSON.stringify({chatId: traceId}),
+                                    method: "DELETE",
+                                });
+                            }
                         },
                         false
                     );
 
                     evtSource.onmessage = (event) => {
-                        const data = JSON.parse(event.data);
-                        if (data.youChatToken) {
-                            window[callbackName]("youChatToken", data.youChatToken);
+                        if (!isEnding) {
+                            const data = JSON.parse(event.data);
+                            if (data.youChatToken) {
+                                window[callbackName]("youChatToken", JSON.stringify(data));
+                            }
                         }
                     };
                     // 注册退出函数
@@ -779,7 +869,8 @@ class YouProvider {
                     };
                 },
                 url,
-                traceId
+                traceId,
+                customEndMarker
             );
         } catch (error) {
             console.error("评估过程中出错:", error);
