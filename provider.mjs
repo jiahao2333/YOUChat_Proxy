@@ -784,8 +784,6 @@ class YouProvider {
         req_param.append("use_personalization_extraction", "false");
         req_param.append("domain", "youchat");
         req_param.append("mkt", "ja-JP");
-        const cid = `c0_${uuidV4()}`;
-        await page.goto(`https://you.com/search?q=${encodeURIComponent(userQuery)}&fromSearchBar=true&tbm=youchat&chatMode=custom&cid=${cid}`, {waitUntil: "domcontentloaded"});
         if (uploadedFile)
             req_param.append("userFiles", JSON.stringify([{
                 user_filename: randomFileName,
@@ -794,10 +792,21 @@ class YouProvider {
             }]));
         req_param.append("chat", JSON.stringify(userMessage));
         const url = "https://you.com/api/streamingSearch?" + req_param.toString();
-        console.log("正在发送请求");
-        emitter.emit("start", traceId);
+        const cid = `c0_${uuidV4()}`;
+        await page.goto(`https://you.com/search?q=${encodeURIComponent(userQuery)}&fromSearchBar=true&tbm=youchat&chatMode=custom&cid=${cid}`, {waitUntil: "domcontentloaded"});
+
+        // 延迟发送请求 Promise
+        const delayedRequest = new Promise((resolve) => {
+            setTimeout(() => {
+                console.log("正在发送请求");
+                emitter.emit("start", traceId);
+                resolve();
+            }, 2000); // 2秒延迟
+        });
 
         try {
+            await delayedRequest;
+
             await page.evaluate(
                 async (url, traceId, customEndMarker) => {
                     function checkEndMarker(response, marker) {
