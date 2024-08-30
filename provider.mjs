@@ -801,7 +801,7 @@ class YouProvider {
                 console.log("正在发送请求");
                 emitter.emit("start", traceId);
                 resolve();
-            }, 2000); // 2秒延迟
+            }, 4000); 
         });
 
         try {
