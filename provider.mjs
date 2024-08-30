@@ -518,7 +518,6 @@ class YouProvider {
 
         //刷新页面
         await session.page.goto("https://you.com", {waitUntil: 'domcontentloaded'});
-        await sleep(5000);
 
         const {page, browser} = session;
         const emitter = new EventEmitter();
