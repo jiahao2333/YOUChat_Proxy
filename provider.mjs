@@ -794,17 +794,86 @@ class YouProvider {
         const cid = `c0_${uuidV4()}`;
         await page.goto(`https://you.com/search?q=${encodeURIComponent(userQuery)}&fromSearchBar=true&tbm=youchat&chatMode=custom&cid=${cid}`, {waitUntil: "domcontentloaded"});
 
-        // 延迟发送请求 Promise
-        const delayedRequest = new Promise((resolve) => {
-            setTimeout(() => {
-                console.log("正在发送请求");
-                emitter.emit("start", traceId);
-                resolve();
-            }, 4000); 
-        });
+        // 检查连接状态和盾拦截
+        async function checkConnectionAndCloudflare(page, timeout = 60000) {
+            try {
+                const response = await Promise.race([
+                    page.evaluate(async (url) => {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 50000);
+                        try {
+                            const res = await fetch(url, {
+                                method: 'GET',
+                                signal: controller.signal
+                            });
+                            clearTimeout(timeoutId);
+                            // 读取响应的前几个字节，确保连接已经建立
+                            const reader = res.body.getReader();
+                            const { done } = await reader.read();
+                            if (!done) {
+                                await reader.cancel();
+                            }
+                            return {
+                                status: res.status,
+                                headers: Object.fromEntries(res.headers.entries())
+                            };
+                        } catch (error) {
+                            if (error.name === 'AbortError') {
+                                throw new Error('Request timed out');
+                            }
+                            throw error;
+                        }
+                    }, url),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Evaluation timed out')), timeout))
+                ]);
+
+                if (response.status === 403 && response.headers['cf-chl-bypass']) {
+                    return { connected: false, cloudflareDetected: true };
+                }
+                return { connected: true, cloudflareDetected: false };
+            } catch (error) {
+                console.error("Connection check error:", error);
+                return { connected: false, cloudflareDetected: false, error: error.message };
+            }
+        }
+
+        // 延迟发送请求并验证连接的函数
+        async function delayedRequestWithRetry(maxRetries = 2, totalTimeout = 120000) {
+            const startTime = Date.now();
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                if (Date.now() - startTime > totalTimeout) {
+                    console.error("总体超时，连接失败");
+                    emitter.emit("error", new Error("Total timeout reached"));
+                    return false;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 4000)); // 4秒延迟
+                console.log(`尝试发送请求 (尝试 ${attempt}/${maxRetries})`);
+
+                const { connected, cloudflareDetected, error } = await checkConnectionAndCloudflare(page);
+
+                if (connected) {
+                    console.log("连接成功，开始发送请求");
+                    emitter.emit("start", traceId);
+                    return true;
+                } else if (cloudflareDetected) {
+                    console.error("检测到 Cloudflare 拦截");
+                    emitter.emit("error", new Error("Cloudflare challenge detected"));
+                    return false;
+                } else {
+                    console.log(`连接失败，准备重试 (${attempt}/${maxRetries}). 错误: ${error || 'Unknown'}`);
+                }
+            }
+            console.error("达到最大重试次数，连接失败");
+            emitter.emit("error", new Error("Failed to establish connection after maximum retries"));
+            return false;
+        }
 
         try {
-            await delayedRequest;
+            const connectionEstablished = await delayedRequestWithRetry();
+            if (!connectionEstablished) {
+                return { completion: emitter, cancel: () => {} };
+            }
 
             await page.evaluate(
                 async (url, traceId, customEndMarker) => {
