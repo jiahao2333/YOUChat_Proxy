@@ -690,6 +690,8 @@ class YouProvider {
 
         let msgid = uuidV4();
         let traceId = uuidV4();
+        let responseStarted = false; // 是否已经开始接收响应
+        let responseTimeout = null; // 响应超时计时器
 
         // 从环境变量中读取自定义终止，并去除可能存在的双引号
         const customEndMarker = (process.env.CUSTOM_END_MARKER || '').replace(/^"|"$/g, '').trim();
@@ -712,6 +714,10 @@ class YouProvider {
             switch (event) {
                 case "youChatToken":
                     data = JSON.parse(data);
+                    if (!responseStarted) {
+                        responseStarted = true;
+                        clearTimeout(responseTimeout);
+                    }
                     process.stdout.write(data.youChatToken);
                     accumulatedResponse += data.youChatToken;
 
@@ -725,6 +731,9 @@ class YouProvider {
                 case "done":
                     if (endTimeout) {
                         clearTimeout(endTimeout);
+                    }
+                    if (responseTimeout) {
+                        clearTimeout(responseTimeout);
                     }
                     console.log("请求结束");
                     isEnding = true;
@@ -742,6 +751,9 @@ class YouProvider {
                     break;
                 case "error":
                     isEnding = true;
+                    if (responseTimeout) {
+                        clearTimeout(responseTimeout);
+                    }
                     emitter.emit("error", new Error(data));
                     break;
             }
@@ -749,6 +761,9 @@ class YouProvider {
             // 检查自定义终止符
             if (!isEnding && customEndMarker && checkEndMarker(accumulatedResponse, customEndMarker)) {
                 isEnding = true;
+                if (responseTimeout) {
+                    clearTimeout(responseTimeout);
+                }
 
                 endTimeout = setTimeout(async () => {
                     console.log("检测到自定义终止，关闭请求");
@@ -791,8 +806,31 @@ class YouProvider {
             }]));
         req_param.append("chat", JSON.stringify(userMessage));
         const url = "https://you.com/api/streamingSearch?" + req_param.toString();
-        const cid = `c0_${uuidV4()}`;
-        await page.goto(`https://you.com/search?q=${encodeURIComponent(userQuery)}&fromSearchBar=true&tbm=youchat&chatMode=custom&cid=${cid}`, {waitUntil: "domcontentloaded"});
+        await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, { waitUntil: "domcontentloaded" });
+
+        async function establishConnection(session, page, emitter, traceId) {
+            try {
+                await session.page.goto("https://you.com", {waitUntil: 'domcontentloaded'});
+                for (let i = 0; i < 60; i++) {
+                    await sleep(1000);
+                    console.log(`[${60 - i}]秒后开始发送请求`);
+                }
+                
+                await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, { waitUntil: "domcontentloaded" });
+
+                const connectionEstablished = await delayedRequestWithRetry();
+                if (!connectionEstablished) {
+                    console.error("Failed to establish connection");
+                    return false;
+                }
+
+                return true;
+            } catch (error) {
+                console.error("建立连接过程中出错:", error);
+                emitter.emit("error", error);
+                return false;
+            }
+        }
 
         // 检查连接状态和盾拦截
         async function checkConnectionAndCloudflare(page, timeout = 60000) {
@@ -853,9 +891,28 @@ class YouProvider {
                 const { connected, cloudflareDetected, error } = await checkConnectionAndCloudflare(page);
 
                 if (connected) {
-                    console.log("连接成功，开始发送请求");
-                    emitter.emit("start", traceId);
-                    return true;
+                    console.log("连接成功，准备唤醒浏览器");
+
+                    try {
+                        // 唤醒浏览器
+                        await page.evaluate(() => {
+                            window.scrollTo(0, 100);
+                            window.scrollTo(0, 0);
+                            const body = document.body;
+                            if (body) {
+                                body.click();
+                            }
+                        });
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        console.log("开始发送请求");
+                        emitter.emit("start", traceId);
+                        return true;
+                    } catch (wakeupError) {
+                        console.error("浏览器唤醒失败:", wakeupError);
+                        emitter.emit("start", traceId);
+                        return true;
+                    }
                 } else if (cloudflareDetected) {
                     console.error("检测到 Cloudflare 拦截");
                     emitter.emit("error", new Error("Cloudflare challenge detected"));
@@ -869,13 +926,8 @@ class YouProvider {
             return false;
         }
 
-        try {
-            const connectionEstablished = await delayedRequestWithRetry();
-            if (!connectionEstablished) {
-                return { completion: emitter, cancel: () => {} };
-            }
-
-            await page.evaluate(
+        async function setupEventSource(page, url, traceId, customEndMarker) {
+            return page.evaluate(
                 async (url, traceId, customEndMarker) => {
                     function checkEndMarker(response, marker) {
                         if (!marker) return false;
@@ -949,6 +1001,38 @@ class YouProvider {
                 traceId,
                 customEndMarker
             );
+        }
+
+        try {
+            const connectionEstablished = await establishConnection(session, page, emitter, traceId);
+            if (!connectionEstablished) {
+                return { completion: emitter, cancel: () => {} };
+            }
+
+            responseTimeout = setTimeout(async () => {
+                if (!responseStarted) {
+                    console.log("40秒内没有收到响应，重新建立连接");
+                    isEnding = true;
+                    await page.evaluate((traceId) => {
+                        if (window["exit" + traceId]) {
+                            window["exit" + traceId]();
+                        }
+                    }, traceId);
+
+                    // 重新建立连接
+                    const newConnection = await establishConnection(session, page, emitter, traceId);
+                    if (!newConnection) {
+                        emitter.emit("error", new Error("Failed to establish new connection after timeout"));
+                        return;
+                    }
+
+                    await setupEventSource(page, url, traceId, customEndMarker);
+                }
+            }, 40000);
+
+            // 初始执行 setupEventSource
+            await setupEventSource(page, url, traceId, customEndMarker);
+
         } catch (error) {
             console.error("评估过程中出错:", error);
             emitter.emit("error", error);
