@@ -806,7 +806,7 @@ class YouProvider {
             }]));
         req_param.append("chat", JSON.stringify(userMessage));
         const url = "https://you.com/api/streamingSearch?" + req_param.toString();
-        await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, { waitUntil: "domcontentloaded" });
+        await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
 
         async function establishConnection(session, page, emitter, traceId) {
             try {
@@ -815,8 +815,8 @@ class YouProvider {
                     await sleep(1000);
                     console.log(`[${60 - i}]秒后开始发送请求`);
                 }
-                
-                await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, { waitUntil: "domcontentloaded" });
+
+                await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
 
                 const connectionEstablished = await delayedRequestWithRetry();
                 if (!connectionEstablished) {
@@ -847,7 +847,7 @@ class YouProvider {
                             clearTimeout(timeoutId);
                             // 读取响应的前几个字节，确保连接已经建立
                             const reader = res.body.getReader();
-                            const { done } = await reader.read();
+                            const {done} = await reader.read();
                             if (!done) {
                                 await reader.cancel();
                             }
@@ -866,12 +866,12 @@ class YouProvider {
                 ]);
 
                 if (response.status === 403 && response.headers['cf-chl-bypass']) {
-                    return { connected: false, cloudflareDetected: true };
+                    return {connected: false, cloudflareDetected: true};
                 }
-                return { connected: true, cloudflareDetected: false };
+                return {connected: true, cloudflareDetected: false};
             } catch (error) {
                 console.error("Connection check error:", error);
-                return { connected: false, cloudflareDetected: false, error: error.message };
+                return {connected: false, cloudflareDetected: false, error: error.message};
             }
         }
 
@@ -888,7 +888,7 @@ class YouProvider {
                 await new Promise(resolve => setTimeout(resolve, 4000)); // 4秒延迟
                 console.log(`尝试发送请求 (尝试 ${attempt}/${maxRetries})`);
 
-                const { connected, cloudflareDetected, error } = await checkConnectionAndCloudflare(page);
+                const {connected, cloudflareDetected, error} = await checkConnectionAndCloudflare(page);
 
                 if (connected) {
                     console.log("连接成功，准备唤醒浏览器");
@@ -1004,9 +1004,12 @@ class YouProvider {
         }
 
         try {
-            const connectionEstablished = await establishConnection(session, page, emitter, traceId);
+            const connectionEstablished = await delayedRequestWithRetry();
             if (!connectionEstablished) {
-                return { completion: emitter, cancel: () => {} };
+                return {
+                    completion: emitter, cancel: () => {
+                    }
+                };
             }
 
             responseTimeout = setTimeout(async () => {
