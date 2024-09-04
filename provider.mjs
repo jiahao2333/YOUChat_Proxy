@@ -806,17 +806,23 @@ class YouProvider {
             }]));
         req_param.append("chat", JSON.stringify(userMessage));
         const url = "https://you.com/api/streamingSearch?" + req_param.toString();
-        await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
+        const enableDelayLogic = process.env.ENABLE_DELAY_LOGIC === 'true'; // 是否启用延迟逻辑
+
+        if (enableDelayLogic) {
+            await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
+        }
+
 
         async function establishConnection(session, page, emitter, traceId) {
             try {
                 await session.page.goto("https://you.com", {waitUntil: 'domcontentloaded'});
-                for (let i = 0; i < 60; i++) {
+                for (let i = 0; i < 40; i++) {
                     await sleep(1000);
-                    console.log(`[${60 - i}]秒后开始发送请求`);
+                    console.log(`[${40 - i}]秒后开始发送请求`);
                 }
 
                 await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
+                await sleep(4000);
 
                 const connectionEstablished = await delayedRequestWithRetry();
                 if (!connectionEstablished) {
@@ -885,40 +891,46 @@ class YouProvider {
                     return false;
                 }
 
-                await new Promise(resolve => setTimeout(resolve, 4000)); // 4秒延迟
-                console.log(`尝试发送请求 (尝试 ${attempt}/${maxRetries})`);
+                if (enableDelayLogic) {
+                    await new Promise(resolve => setTimeout(resolve, 4000)); // 4秒延迟
+                    console.log(`尝试发送请求 (尝试 ${attempt}/${maxRetries})`);
 
-                const {connected, cloudflareDetected, error} = await checkConnectionAndCloudflare(page);
+                    const {connected, cloudflareDetected, error} = await checkConnectionAndCloudflare(page);
 
-                if (connected) {
-                    console.log("连接成功，准备唤醒浏览器");
+                    if (connected) {
+                        console.log("连接成功，准备唤醒浏览器");
 
-                    try {
-                        // 唤醒浏览器
-                        await page.evaluate(() => {
-                            window.scrollTo(0, 100);
-                            window.scrollTo(0, 0);
-                            const body = document.body;
-                            if (body) {
-                                body.click();
-                            }
-                        });
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        try {
+                            // 唤醒浏览器
+                            await page.evaluate(() => {
+                                window.scrollTo(0, 100);
+                                window.scrollTo(0, 0);
+                                const body = document.body;
+                                if (body) {
+                                    body.click();
+                                }
+                            });
+                            await new Promise(resolve => setTimeout(resolve, 1000));
 
-                        console.log("开始发送请求");
-                        emitter.emit("start", traceId);
-                        return true;
-                    } catch (wakeupError) {
-                        console.error("浏览器唤醒失败:", wakeupError);
-                        emitter.emit("start", traceId);
-                        return true;
+                            console.log("开始发送请求");
+                            emitter.emit("start", traceId);
+                            return true;
+                        } catch (wakeupError) {
+                            console.error("浏览器唤醒失败:", wakeupError);
+                            emitter.emit("start", traceId);
+                            return true;
+                        }
+                    } else if (cloudflareDetected) {
+                        console.error("检测到 Cloudflare 拦截");
+                        emitter.emit("error", new Error("Cloudflare challenge detected"));
+                        return false;
+                    } else {
+                        console.log(`连接失败，准备重试 (${attempt}/${maxRetries}). 错误: ${error || 'Unknown'}`);
                     }
-                } else if (cloudflareDetected) {
-                    console.error("检测到 Cloudflare 拦截");
-                    emitter.emit("error", new Error("Cloudflare challenge detected"));
-                    return false;
                 } else {
-                    console.log(`连接失败，准备重试 (${attempt}/${maxRetries}). 错误: ${error || 'Unknown'}`);
+                    console.log("开始发送请求");
+                    emitter.emit("start", traceId);
+                    return true;
                 }
             }
             console.error("达到最大重试次数，连接失败");
@@ -1010,6 +1022,10 @@ class YouProvider {
                     completion: emitter, cancel: () => {
                     }
                 };
+            }
+
+            if (!enableDelayLogic) {
+                await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
             }
 
             responseTimeout = setTimeout(async () => {
