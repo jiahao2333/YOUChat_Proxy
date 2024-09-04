@@ -12,6 +12,9 @@ set ALLOW_NON_PRO=false
 REM 设置自定义终止符(用于处理输出停不下来情况，留空则不启用，使用双引号包裹)
 set CUSTOM_END_MARKER="<CHAR_turn>"
 
+REM 设置是否启用延迟发送请求，如果设置false卡发送请求尝试打开它
+set ENABLE_DELAY_LOGIC=false
+
 REM 设置是否启用隧道访问
 set ENABLE_TUNNEL=false
 
