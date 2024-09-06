@@ -18,7 +18,7 @@ class YouProvider {
         this.config = config;
         this.sessions = {};
         // 可以是 'chrome', 'edge', 或 'auto'
-        this.preferredBrowser = 'auto';
+        this.preferredBrowser = 'edge';
         this.isCustomModeEnabled = process.env.USE_CUSTOM_MODE === "true";
         this.isRotationEnabled = process.env.ENABLE_MODE_ROTATION === "true";
         this.currentMode = "default";
@@ -690,14 +690,16 @@ class YouProvider {
 
         let msgid = uuidV4();
         let traceId = uuidV4();
+        let finalResponse = ""; // 用于存储最终响应
         let responseStarted = false; // 是否已经开始接收响应
         let responseTimeout = null; // 响应超时计时器
-
-        // 从环境变量中读取自定义终止，并去除可能存在的双引号
-        const customEndMarker = (process.env.CUSTOM_END_MARKER || '').replace(/^"|"$/g, '').trim();
-        let accumulatedResponse = '';
-        let isEnding = false;
-        let endTimeout = null;
+        let customEndMarkerTimer = null; // 自定义终止符计时器
+        let customEndMarkerEnabled = false; // 是否启用自定义终止符
+        let accumulatedResponse = ''; // 累积响应
+        let responseAfter20Seconds = ''; // 20秒后的响应
+        let startTime = null; // 开始时间
+        const customEndMarker = (process.env.CUSTOM_END_MARKER || '').replace(/^"|"$/g, '').trim(); // 自定义终止符
+        let isEnding = false; // 是否正在结束
 
         function checkEndMarker(response, marker) {
             if (!marker) return false;
@@ -707,78 +709,73 @@ class YouProvider {
         }
 
         // expose function to receive youChatToken
-        let finalResponse = "";
+        // 清理逻辑
+        const cleanup = async () => {
+            clearTimeout(responseTimeout);
+            clearTimeout(customEndMarkerTimer);
+            await page.evaluate((traceId) => {
+                if (window["exit" + traceId]) {
+                    window["exit" + traceId]();
+                }
+            }, traceId);
+        };
+
         page.exposeFunction("callback" + traceId, async (event, data) => {
-            if (isEnding) return; // 如果已经在结束过程中，不再处理新的事件
+            if (isEnding) return;
 
             switch (event) {
                 case "youChatToken":
                     data = JSON.parse(data);
                     if (!responseStarted) {
                         responseStarted = true;
+                        startTime = Date.now(); // 记录开始时间
                         clearTimeout(responseTimeout);
+                        // 自定义终止符延迟触发
+                        customEndMarkerTimer = setTimeout(() => {
+                            customEndMarkerEnabled = true;
+                        }, 20000);
                     }
                     process.stdout.write(data.youChatToken);
                     accumulatedResponse += data.youChatToken;
 
-                    // 无论是否正在结束，都发送数据
+                    if (Date.now() - startTime >= 20000) {
+                        responseAfter20Seconds += data.youChatToken;
+                    }
+
                     if (stream) {
                         emitter.emit("completion", traceId, data.youChatToken);
                     } else {
                         finalResponse += data.youChatToken;
                     }
+
+                    // 只在启用自定义终止符后，且只检查20秒后的响应
+                    if (customEndMarkerEnabled && customEndMarker && checkEndMarker(responseAfter20Seconds, customEndMarker)) {
+                        isEnding = true;
+                        console.log("检测到自定义终止，关闭请求");
+
+                        setTimeout(async () => {
+                            await cleanup();
+                            emitter.emit(stream ? "end" : "completion", traceId, stream ? undefined : finalResponse);
+                        }, 2000);
+                    }
+                    break;
+                case "customEndMarkerEnabled":
+                    customEndMarkerEnabled = true;
                     break;
                 case "done":
-                    if (endTimeout) {
-                        clearTimeout(endTimeout);
-                    }
-                    if (responseTimeout) {
-                        clearTimeout(responseTimeout);
-                    }
+                    if (isEnding) return;
                     console.log("请求结束");
                     isEnding = true;
-                    if (stream) {
-                        emitter.emit("end");
-                    } else {
-                        emitter.emit("completion", traceId, finalResponse);
-                    }
-                    // 关闭 EventSource
-                    await page.evaluate((traceId) => {
-                        if (window["exit" + traceId]) {
-                            window["exit" + traceId]();
-                        }
-                    }, traceId);
+                    await cleanup();
+                    emitter.emit(stream ? "end" : "completion", traceId, stream ? undefined : finalResponse);
                     break;
                 case "error":
+                    if (isEnding) return; // 如果已经结束，则忽略错误
+                    console.error("请求发生错误");
                     isEnding = true;
-                    if (responseTimeout) {
-                        clearTimeout(responseTimeout);
-                    }
+                    await cleanup();
                     emitter.emit("error", new Error(data));
                     break;
-            }
-
-            // 检查自定义终止符
-            if (!isEnding && customEndMarker && checkEndMarker(accumulatedResponse, customEndMarker)) {
-                isEnding = true;
-                if (responseTimeout) {
-                    clearTimeout(responseTimeout);
-                }
-
-                endTimeout = setTimeout(async () => {
-                    console.log("检测到自定义终止，关闭请求");
-                    if (stream) {
-                        emitter.emit("end");
-                    } else {
-                        emitter.emit("completion", traceId, finalResponse);
-                    }
-                    // 关闭 EventSource
-                    await page.evaluate((traceId) => {
-                        if (window["exit" + traceId]) {
-                            window["exit" + traceId]();
-                        }
-                    }, traceId);
-                }, 2000); // 延迟2秒关闭
             }
         });
 
@@ -810,32 +807,6 @@ class YouProvider {
 
         if (enableDelayLogic) {
             await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
-        }
-
-
-        async function establishConnection(session, page, emitter, traceId) {
-            try {
-                await session.page.goto("https://you.com", {waitUntil: 'domcontentloaded'});
-                for (let i = 0; i < 40; i++) {
-                    await sleep(1000);
-                    console.log(`[${40 - i}]秒后开始发送请求`);
-                }
-
-                await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
-                await sleep(4000);
-
-                const connectionEstablished = await delayedRequestWithRetry();
-                if (!connectionEstablished) {
-                    console.error("Failed to establish connection");
-                    return false;
-                }
-
-                return true;
-            } catch (error) {
-                console.error("建立连接过程中出错:", error);
-                emitter.emit("error", error);
-                return false;
-            }
         }
 
         // 检查连接状态和盾拦截
@@ -899,19 +870,14 @@ class YouProvider {
 
                     if (connected) {
                         console.log("连接成功，准备唤醒浏览器");
-
                         try {
                             // 唤醒浏览器
                             await page.evaluate(() => {
                                 window.scrollTo(0, 100);
                                 window.scrollTo(0, 0);
-                                const body = document.body;
-                                if (body) {
-                                    body.click();
-                                }
+                                document.body?.click();
                             });
                             await new Promise(resolve => setTimeout(resolve, 1000));
-
                             console.log("开始发送请求");
                             emitter.emit("start", traceId);
                             return true;
@@ -941,60 +907,35 @@ class YouProvider {
         async function setupEventSource(page, url, traceId, customEndMarker) {
             return page.evaluate(
                 async (url, traceId, customEndMarker) => {
-                    function checkEndMarker(response, marker) {
-                        if (!marker) return false;
-                        const cleanResponse = response.replace(/\s+/g, '').toLowerCase();
-                        const cleanMarker = marker.replace(/\s+/g, '').toLowerCase();
-                        return cleanResponse.includes(cleanMarker);
-                    }
-
                     const evtSource = new EventSource(url);
                     const callbackName = "callback" + traceId;
-                    let accumulatedResponse = '';
                     let isEnding = false;
+                    let customEndMarkerTimer = null;
 
                     evtSource.onerror = (error) => {
                         if (!isEnding) {
                             window[callbackName]("error", error);
-                            evtSource.close();
                         }
                     };
-                    evtSource.addEventListener(
-                        "youChatToken",
-                        (event) => {
-                            if (isEnding) return;
 
-                            const data = JSON.parse(event.data);
-                            window[callbackName]("youChatToken", JSON.stringify(data));
+                    evtSource.addEventListener("youChatToken", (event) => {
+                        if (isEnding) return;
 
-                            if (customEndMarker) {
-                                accumulatedResponse += data.youChatToken;
-                                if (checkEndMarker(accumulatedResponse, customEndMarker)) {
-                                    console.log("检测到自定义终止，准备结束请求");
-                                }
-                            }
-                        },
-                        false
-                    );
+                        const data = JSON.parse(event.data);
+                        window[callbackName]("youChatToken", JSON.stringify(data));
 
-                    evtSource.addEventListener(
-                        "done",
-                        () => {
-                            if (!isEnding) {
-                                isEnding = true;
-                                window[callbackName]("done", "");
-                                evtSource.close();
-                                fetch("https://you.com/api/chat/deleteChat", {
-                                    headers: {
-                                        "content-type": "application/json",
-                                    },
-                                    body: JSON.stringify({chatId: traceId}),
-                                    method: "DELETE",
-                                });
-                            }
-                        },
-                        false
-                    );
+                        if (customEndMarker && !customEndMarkerTimer) {
+                            customEndMarkerTimer = setTimeout(() => {
+                                window[callbackName]("customEndMarkerEnabled", "");
+                            }, 20000);
+                        }
+                    }, false);
+
+                    evtSource.addEventListener("done", () => {
+                        if (!isEnding) {
+                            window[callbackName]("done", "");
+                        }
+                    }, false);
 
                     evtSource.onmessage = (event) => {
                         if (!isEnding) {
@@ -1006,7 +947,16 @@ class YouProvider {
                     };
                     // 注册退出函数
                     window["exit" + traceId] = () => {
+                        isEnding = true;
+                        if (customEndMarkerTimer) {
+                            clearTimeout(customEndMarkerTimer);
+                        }
                         evtSource.close();
+                        fetch("https://you.com/api/chat/deleteChat", {
+                            headers: {"content-type": "application/json"},
+                            body: JSON.stringify({chatId: traceId}),
+                            method: "DELETE",
+                        });
                     };
                 },
                 url,
@@ -1030,22 +980,10 @@ class YouProvider {
 
             responseTimeout = setTimeout(async () => {
                 if (!responseStarted) {
-                    console.log("40秒内没有收到响应，重新建立连接");
+                    console.log("40秒内没有收到响应，终止请求");
                     isEnding = true;
-                    await page.evaluate((traceId) => {
-                        if (window["exit" + traceId]) {
-                            window["exit" + traceId]();
-                        }
-                    }, traceId);
-
-                    // 重新建立连接
-                    const newConnection = await establishConnection(session, page, emitter, traceId);
-                    if (!newConnection) {
-                        emitter.emit("error", new Error("Failed to establish new connection after timeout"));
-                        return;
-                    }
-
-                    await setupEventSource(page, url, traceId, customEndMarker);
+                    await cleanup();
+                    emitter.emit("error", new Error("No response received within 40 seconds, request terminated"));
                 }
             }, 40000);
 
@@ -1064,7 +1002,9 @@ class YouProvider {
 
         const cancel = () => {
             page?.evaluate((traceId) => {
-                window["exit" + traceId]();
+                if (window["exit" + traceId]) {
+                    window["exit" + traceId]();
+                }
             }, traceId).catch(console.error);
         };
 
