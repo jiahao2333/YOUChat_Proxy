@@ -48,6 +48,7 @@ class YouProvider {
         console.log(`切换到${this.currentMode}模式，将在${this.switchThreshold}次请求后再次切换`);
     }
 
+
     async init(config) {
         console.log(`本项目依赖Chrome或Edge浏览器，请勿关闭弹出的浏览器窗口。如果出现错误请检查是否已安装Chrome或Edge浏览器。`);
 
@@ -978,12 +979,10 @@ class YouProvider {
                 await page.goto(`https://you.com/search?q=&fromSearchBar=true&tbm=youchat&chatMode=custom`, {waitUntil: "domcontentloaded"});
             }
 
-            responseTimeout = setTimeout(async () => {
+            responseTimeout = setTimeout(() => {
                 if (!responseStarted) {
                     console.log("40秒内没有收到响应，终止请求");
-                    isEnding = true;
-                    await cleanup();
-                    emitter.emit("error", new Error("No response received within 40 seconds, request terminated"));
+                    emitter.emit("warning", new Error("No response received within 40 seconds"));
                 }
             }, 40000);
 
@@ -993,11 +992,6 @@ class YouProvider {
         } catch (error) {
             console.error("评估过程中出错:", error);
             emitter.emit("error", error);
-            return {
-                completion: emitter,
-                cancel: () => {
-                }
-            };
         }
 
         const cancel = () => {
