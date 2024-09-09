@@ -981,10 +981,11 @@ class YouProvider {
 
             responseTimeout = setTimeout(() => {
                 if (!responseStarted) {
-                    console.log("40秒内没有收到响应，终止请求");
+                    console.log("50秒内没有收到响应，终止请求");
                     emitter.emit("warning", new Error("No response received within 40 seconds"));
+                    emitter.emit("end", traceId);
                 }
-            }, 40000);
+            }, 50000);
 
             // 初始执行 setupEventSource
             await setupEventSource(page, url, traceId, customEndMarker);
