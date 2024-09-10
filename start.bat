@@ -1,10 +1,12 @@
 @echo off
 
 REM 安装依赖包
-#call npm install
+
+REM 首次运行删除下方REM
+REM call npm install
 
 REM 设置是否启用手动登录
-set USE_MANUAL_LOGIN=true
+set USE_MANUAL_LOGIN=false
 
 REM 是否允许非Pro账户
 set ALLOW_NON_PRO=false
