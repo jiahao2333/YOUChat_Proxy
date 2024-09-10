@@ -784,18 +784,22 @@ class YouProvider {
         const req_param = new URLSearchParams();
         req_param.append("page", "1");
         req_param.append("count", "10");
-        req_param.append("safeSearch", "Off");
-        req_param.append("q", userQuery);
-        req_param.append("chatId", traceId);
-        req_param.append("traceId", `${traceId}|${msgid}|${new Date().toISOString()}`);
-        req_param.append("conversationTurnId", msgid);
-        if (userChatModeId === "custom") req_param.append("selectedAiModel", proxyModel);
-        req_param.append("selectedChatMode", userChatModeId);
-        req_param.append("pastChatLength", userMessage.length.toString());
-        req_param.append("queryTraceId", traceId);
-        req_param.append("use_personalization_extraction", "false");
+        req_param.append("safeSearch", "Moderate");
+        req_param.append("mkt", "en-US");
+        req_param.append("incognito", "true");
         req_param.append("domain", "youchat");
-        req_param.append("mkt", "ja-JP");
+        req_param.append("use_personalization_extraction", "false");
+        req_param.append("disable_web_results", "true");
+        req_param.append("queryTraceId", traceId);
+        req_param.append("chatId", traceId);
+        req_param.append("conversationTurnId", msgid);
+        req_param.append("pastChatLength", userMessage.length.toString());
+        req_param.append("selectedChatMode", userChatModeId);
+        req_param.append("traceId", `${traceId}|${msgid}|${new Date().toISOString()}`);
+        if (userChatModeId === "custom") req_param.append("selectedAiModel", proxyModel);
+        req_param.append("q", userQuery);
+
+
         if (uploadedFile)
             req_param.append("userFiles", JSON.stringify([{
                 user_filename: randomFileName,
