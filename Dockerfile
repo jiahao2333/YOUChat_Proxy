@@ -51,6 +51,14 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
+## Connection ports for controlling the UI:
+# VNC port:5901
+# noVNC webport, connect via http://IP:6901/?password=vncpassword
+ENV DISPLAY=:1 \
+    VNC_PORT=5901 \
+    NO_VNC_PORT=6901
+EXPOSE $VNC_PORT $NO_VNC_PORT 8000
+
 USER 1000
 
 ENTRYPOINT ["/dockerstartup/vnc_startup.sh"]
